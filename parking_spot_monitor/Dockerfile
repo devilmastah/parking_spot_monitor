@@ -4,6 +4,8 @@ FROM ${BUILD_FROM}
 RUN apk add --no-cache \
     python3 \
     py3-pip \
+    py3-numpy \
+    py3-opencv \
     tesseract-ocr \
     tesseract-ocr-data-eng \
     tesseract-ocr-data-nld \

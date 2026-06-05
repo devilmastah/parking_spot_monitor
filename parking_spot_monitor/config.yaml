@@ -1,6 +1,6 @@
 name: Parking Spot Monitor
 description: Monitor fixed parking spots via camera snapshots and license plate recognition
-version: "1.0.0"
+version: "1.0.1"
 slug: parking_spot_monitor
 init: false
 arch:
