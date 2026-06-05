@@ -37,7 +37,7 @@ flowchart LR
 
 ### 1. Flash ESP32-CAM units (ESPHome)
 
-Use the example config: [`esphome/parking_bay_esp32cam.yaml.example`](esphome/parking_bay_esp32cam.yaml.example)
+Use the ESPHome config in [`esphome/parking_bay_esp32cam.yaml`](esphome/parking_bay_esp32cam.yaml) — see [`esphome/README.md`](esphome/README.md) for per-bay setup.
 
 - One ESPHome device per bay (unique `name` / `friendly_name`)
 - Mount camera overhead or angled at the roof marker spot
@@ -66,6 +66,7 @@ Example (YAML mode):
 ha_url: http://supervisor/core
 snapshot_interval_minutes: 5
 capture_delay_seconds: 3
+flash_before_capture: true
 aruco_dictionary: DICT_4X4_50
 mqtt_enabled: true
 mqtt_broker: core-mosquitto
@@ -84,6 +85,7 @@ bays:
 |--------|-------------|---------|
 | `snapshot_interval_minutes` | Full round-robin interval | `5` |
 | `capture_delay_seconds` | Pause between bay snapshots | `3` |
+| `flash_before_capture` | Call ESPHome `prepare_capture` script before each snapshot | `true` |
 | `aruco_dictionary` | OpenCV dictionary name | `DICT_4X4_50` |
 | `bays` | List of `{name, camera_entity_id}` | `[]` |
 

@@ -31,6 +31,7 @@ async def status():
     return {
         "snapshot_interval_minutes": settings.snapshot_interval_minutes,
         "capture_delay_seconds": settings.capture_delay_seconds,
+        "flash_before_capture": settings.flash_before_capture,
         "aruco_dictionary": settings.aruco_dictionary,
         "mqtt_enabled": settings.mqtt_enabled,
         "ha_url": settings.ha_url,

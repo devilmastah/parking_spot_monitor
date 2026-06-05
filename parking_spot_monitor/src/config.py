@@ -17,6 +17,12 @@ class Settings:
     capture_delay_seconds: int = field(
         default_factory=lambda: int(os.getenv("CAPTURE_DELAY", "3"))
     )
+    flash_before_capture: bool = field(
+        default_factory=lambda: os.getenv("FLASH_BEFORE_CAPTURE", "true").lower() == "true"
+    )
+    prepare_capture_wait_ms: int = field(
+        default_factory=lambda: int(os.getenv("PREPARE_CAPTURE_WAIT_MS", "600"))
+    )
     aruco_dictionary: str = field(
         default_factory=lambda: os.getenv("ARUCO_DICTIONARY", "DICT_4X4_50")
     )

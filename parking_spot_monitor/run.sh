@@ -12,6 +12,8 @@ fi
 
 export SNAPSHOT_INTERVAL="$(bashio::config 'snapshot_interval_minutes' 5)"
 export CAPTURE_DELAY="$(bashio::config 'capture_delay_seconds' 3)"
+export FLASH_BEFORE_CAPTURE="$(bashio::config 'flash_before_capture' true)"
+export PREPARE_CAPTURE_WAIT_MS="600"
 export ARUCO_DICTIONARY="$(bashio::config 'aruco_dictionary' 'DICT_4X4_50')"
 export MQTT_ENABLED="$(bashio::config 'mqtt_enabled' true)"
 export MQTT_BROKER="$(bashio::config 'mqtt_broker' 'core-mosquitto')"
