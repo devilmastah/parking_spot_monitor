@@ -1,0 +1,5 @@
+run.sh text eol=lf
+parking_spot_monitor/run.sh text eol=lf
+Dockerfile text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf

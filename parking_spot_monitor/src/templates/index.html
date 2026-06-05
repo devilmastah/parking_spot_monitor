@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Parking Spot Monitor</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>Parking Spot Monitor</h1>
+    <p class="subtitle">Define zones on camera snapshots and track fleet parking by license plate</p>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="zones">Zones</button>
+    <button class="tab" data-tab="fleet">Fleet</button>
+    <button class="tab" data-tab="status">Live Status</button>
+    <button class="tab" data-tab="settings">Settings</button>
+  </nav>
+
+  <main>
+    <!-- ZONES TAB -->
+    <section id="tab-zones" class="panel active">
+      <div class="toolbar">
+        <label>
+          Camera
+          <select id="camera-select"></select>
+        </label>
+        <button id="refresh-snapshot" class="btn">Refresh Snapshot</button>
+        <button id="analyze-now" class="btn primary">Analyze Now</button>
+        <span id="zone-hint" class="hint">Click to add polygon points. Double-click or click first point to close.</span>
+      </div>
+
+      <div class="editor-layout">
+        <div class="canvas-wrap">
+          <canvas id="zone-canvas"></canvas>
+        </div>
+        <aside class="sidebar">
+          <h3>Zones on this camera</h3>
+          <ul id="zone-list"></ul>
+          <form id="zone-form" class="hidden">
+            <h4 id="zone-form-title">New zone</h4>
+            <label>Name <input type="text" id="zone-name" required placeholder="Spot 1"></label>
+            <div class="form-actions">
+              <button type="submit" class="btn primary">Save Zone</button>
+              <button type="button" id="cancel-zone" class="btn">Cancel</button>
+            </div>
+          </form>
+          <button id="new-zone" class="btn">Draw New Zone</button>
+          <button id="clear-drawing" class="btn danger hidden">Clear Drawing</button>
+        </aside>
+      </div>
+    </section>
+
+    <!-- FLEET TAB -->
+    <section id="tab-fleet" class="panel">
+      <div class="toolbar">
+        <h2>Fleet Configuration</h2>
+        <button id="add-car" class="btn primary">Add Car</button>
+      </div>
+      <table id="fleet-table">
+        <thead>
+          <tr>
+            <th>Car #</th>
+            <th>License Plate</th>
+            <th>Notes</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <!-- STATUS TAB -->
+    <section id="tab-status" class="panel">
+      <div class="toolbar">
+        <h2>Parking Spot Status</h2>
+        <button id="refresh-status" class="btn">Refresh</button>
+      </div>
+      <div id="status-grid" class="status-grid"></div>
+    </section>
+
+    <!-- SETTINGS TAB -->
+    <section id="tab-settings" class="panel">
+      <h2>Cameras</h2>
+      <p class="hint">Cameras can be configured in the add-on options, or added here manually.</p>
+      <form id="camera-form" class="inline-form">
+        <input type="text" id="cam-name" placeholder="Display name" required>
+        <input type="text" id="cam-entity" placeholder="camera.driveway" required>
+        <button type="submit" class="btn primary">Add Camera</button>
+        <button type="button" id="import-addon-cams" class="btn">Import from Add-on Config</button>
+      </form>
+      <ul id="camera-list" class="camera-list"></ul>
+
+      <h2>System</h2>
+      <pre id="system-info"></pre>
+    </section>
+  </main>
+
+  <div id="modal" class="modal hidden">
+    <div class="modal-content">
+      <h3 id="modal-title"></h3>
+      <div id="modal-body"></div>
+      <div class="form-actions">
+        <button id="modal-confirm" class="btn primary">Save</button>
+        <button id="modal-cancel" class="btn">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

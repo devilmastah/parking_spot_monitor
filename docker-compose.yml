@@ -1,0 +1,17 @@
+services:
+  parking-spot:
+    build: ./parking_spot_monitor
+    ports:
+      - "8099:8099"
+    environment:
+      DATA_DIR: /data
+      PORT: 8099
+      HA_URL: ${HA_URL:-http://host.docker.internal:8123}
+      HA_TOKEN: ${HA_TOKEN:-}
+      SNAPSHOT_INTERVAL: 5
+      MQTT_ENABLED: "false"
+    volumes:
+      - parking_data:/data
+
+volumes:
+  parking_data:
