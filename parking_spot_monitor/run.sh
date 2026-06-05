@@ -11,6 +11,8 @@ else
 fi
 
 export SNAPSHOT_INTERVAL="$(bashio::config 'snapshot_interval_minutes' 5)"
+export CAPTURE_DELAY="$(bashio::config 'capture_delay_seconds' 3)"
+export ARUCO_DICTIONARY="$(bashio::config 'aruco_dictionary' 'DICT_4X4_50')"
 export MQTT_ENABLED="$(bashio::config 'mqtt_enabled' true)"
 export MQTT_BROKER="$(bashio::config 'mqtt_broker' 'core-mosquitto')"
 export MQTT_PORT="$(bashio::config 'mqtt_port' 1883)"
@@ -26,8 +28,7 @@ fi
 
 mkdir -p "${DATA_DIR}/snapshots"
 
-# Export addon camera list for the app to import
-CAMERAS_JSON="$(bashio::config 'cameras' '[]')"
-echo "${CAMERAS_JSON}" > "${DATA_DIR}/addon_cameras.json"
+BAYS_JSON="$(bashio::config 'bays' '[]')"
+echo "${BAYS_JSON}" > "${DATA_DIR}/addon_bays.json"
 
 python3 -m src.main

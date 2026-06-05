@@ -14,6 +14,12 @@ class Settings:
     snapshot_interval_minutes: int = field(
         default_factory=lambda: int(os.getenv("SNAPSHOT_INTERVAL", "5"))
     )
+    capture_delay_seconds: int = field(
+        default_factory=lambda: int(os.getenv("CAPTURE_DELAY", "3"))
+    )
+    aruco_dictionary: str = field(
+        default_factory=lambda: os.getenv("ARUCO_DICTIONARY", "DICT_4X4_50")
+    )
     mqtt_enabled: bool = field(
         default_factory=lambda: os.getenv("MQTT_ENABLED", "true").lower() == "true"
     )
@@ -34,13 +40,13 @@ class Settings:
         return os.path.join(self.data_dir, "snapshots")
 
     @property
-    def addon_cameras_path(self) -> str:
-        return os.path.join(self.data_dir, "addon_cameras.json")
+    def addon_bays_path(self) -> str:
+        return os.path.join(self.data_dir, "addon_bays.json")
 
-    def load_addon_cameras(self) -> list[dict]:
-        if not os.path.exists(self.addon_cameras_path):
+    def load_addon_bays(self) -> list[dict]:
+        if not os.path.exists(self.addon_bays_path):
             return []
-        with open(self.addon_cameras_path, encoding="utf-8") as f:
+        with open(self.addon_bays_path, encoding="utf-8") as f:
             return json.load(f)
 
 

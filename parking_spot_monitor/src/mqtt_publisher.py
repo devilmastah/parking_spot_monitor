@@ -18,7 +18,7 @@ def _slug(text: str) -> str:
 class MQTTPublisher:
     def __init__(self):
         self.client: mqtt.Client | None = None
-        self.discovered_zones: set[str] = set()
+        self.discovered_bays: set[str] = set()
 
     def connect(self) -> None:
         if not settings.mqtt_enabled:
@@ -42,28 +42,28 @@ class MQTTPublisher:
             self.client.loop_stop()
             self.client.disconnect()
 
-    def _topic(self, zone_id: str, suffix: str) -> str:
-        return f"{settings.mqtt_topic_prefix}/{zone_id}/{suffix}"
+    def _topic(self, bay_id: str, suffix: str) -> str:
+        return f"{settings.mqtt_topic_prefix}/{bay_id}/{suffix}"
 
-    def publish_discovery(self, zone_id: str, zone_name: str, camera_name: str) -> None:
-        if not self.client or zone_id in self.discovered_zones:
+    def publish_discovery(self, bay_id: str, bay_name: str) -> None:
+        if not self.client or bay_id in self.discovered_bays:
             return
 
         device = {
-            "identifiers": [f"parking_spot_{zone_id}"],
-            "name": f"Parking {zone_name}",
+            "identifiers": [f"parking_bay_{bay_id}"],
+            "name": f"Parking {bay_name}",
             "manufacturer": "Parking Spot Monitor",
-            "model": camera_name,
+            "model": "ESP32-CAM ArUco",
         }
         prefix = settings.mqtt_topic_prefix
-        unique = _slug(zone_id)
+        unique = _slug(bay_id)
 
         configs = [
             {
                 "platform": "binary_sensor",
-                "name": f"{zone_name} Occupied",
+                "name": f"{bay_name} Occupied",
                 "unique_id": f"parking_{unique}_occupied",
-                "state_topic": f"{prefix}/{zone_id}/occupied",
+                "state_topic": f"{prefix}/{bay_id}/occupied",
                 "payload_on": "ON",
                 "payload_off": "OFF",
                 "device": device,
@@ -71,25 +71,25 @@ class MQTTPublisher:
             },
             {
                 "platform": "sensor",
-                "name": f"{zone_name} Car Number",
+                "name": f"{bay_name} Car Number",
                 "unique_id": f"parking_{unique}_car_number",
-                "state_topic": f"{prefix}/{zone_id}/car_number",
+                "state_topic": f"{prefix}/{bay_id}/car_number",
                 "device": device,
                 "icon": "mdi:numeric",
             },
             {
                 "platform": "sensor",
-                "name": f"{zone_name} Plate",
-                "unique_id": f"parking_{unique}_plate",
-                "state_topic": f"{prefix}/{zone_id}/plate",
+                "name": f"{bay_name} ArUco ID",
+                "unique_id": f"parking_{unique}_aruco_id",
+                "state_topic": f"{prefix}/{bay_id}/aruco_id",
                 "device": device,
-                "icon": "mdi:card-text",
+                "icon": "mdi:qrcode",
             },
             {
                 "platform": "sensor",
-                "name": f"{zone_name} Confidence",
+                "name": f"{bay_name} Confidence",
                 "unique_id": f"parking_{unique}_confidence",
-                "state_topic": f"{prefix}/{zone_id}/confidence",
+                "state_topic": f"{prefix}/{bay_id}/confidence",
                 "unit_of_measurement": "%",
                 "device": device,
                 "icon": "mdi:percent",
@@ -101,46 +101,45 @@ class MQTTPublisher:
             topic = f"homeassistant/{platform}/{unique}/{cfg['unique_id']}/config"
             self.client.publish(topic, json.dumps(cfg), retain=True)
 
-        self.discovered_zones.add(zone_id)
-        logger.info("Published MQTT discovery for zone %s", zone_id)
+        self.discovered_bays.add(bay_id)
+        logger.info("Published MQTT discovery for bay %s", bay_id)
 
-    def publish_spot_state(
+    def publish_bay_state(
         self,
-        zone_id: str,
-        zone_name: str,
-        camera_name: str,
+        bay_id: str,
+        bay_name: str,
         occupied: bool,
         car_number: int | None,
-        plate_read: str | None,
+        aruco_id_detected: int | None,
         confidence: float,
     ) -> None:
         if not self.client:
             return
 
-        self.publish_discovery(zone_id, zone_name, camera_name)
-        self.client.publish(self._topic(zone_id, "occupied"), "ON" if occupied else "OFF", retain=True)
+        self.publish_discovery(bay_id, bay_name)
+        self.client.publish(self._topic(bay_id, "occupied"), "ON" if occupied else "OFF", retain=True)
         self.client.publish(
-            self._topic(zone_id, "car_number"),
+            self._topic(bay_id, "car_number"),
             str(car_number) if car_number is not None else "unknown",
             retain=True,
         )
         self.client.publish(
-            self._topic(zone_id, "plate"),
-            plate_read or "unknown",
+            self._topic(bay_id, "aruco_id"),
+            str(aruco_id_detected) if aruco_id_detected is not None else "none",
             retain=True,
         )
         self.client.publish(
-            self._topic(zone_id, "confidence"),
+            self._topic(bay_id, "confidence"),
             str(round(confidence * 100, 1)),
             retain=True,
         )
         self.client.publish(
-            self._topic(zone_id, "state"),
+            self._topic(bay_id, "state"),
             json.dumps(
                 {
                     "occupied": occupied,
                     "car_number": car_number,
-                    "plate_read": plate_read,
+                    "aruco_id_detected": aruco_id_detected,
                     "confidence": confidence,
                 }
             ),

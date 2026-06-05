@@ -1,6 +1,6 @@
 name: Parking Spot Monitor
-description: Monitor fixed parking spots via camera snapshots and license plate recognition
-version: "1.0.1"
+description: Monitor parking bays via ESP32-CAM snapshots and roof-mounted ArUco markers
+version: "2.0.0"
 slug: parking_spot_monitor
 init: false
 arch:
@@ -18,22 +18,26 @@ homeassistant_api: true
 options:
   ha_url: http://supervisor/core
   snapshot_interval_minutes: 5
+  capture_delay_seconds: 3
+  aruco_dictionary: DICT_4X4_50
   mqtt_enabled: true
   mqtt_broker: core-mosquitto
   mqtt_port: 1883
   mqtt_username: ""
   mqtt_password: ""
   mqtt_topic_prefix: parking_spot
-  cameras: []
+  bays: []
 schema:
   ha_url: str
   snapshot_interval_minutes: int(1,60)?
+  capture_delay_seconds: int(1,30)?
+  aruco_dictionary: str
   mqtt_enabled: bool
   mqtt_broker: str
   mqtt_port: port
   mqtt_username: str
   mqtt_password: password
   mqtt_topic_prefix: str
-  cameras:
-    - entity_id: str
-      name: str
+  bays:
+    - name: str
+      camera_entity_id: str

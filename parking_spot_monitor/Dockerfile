@@ -6,11 +6,6 @@ RUN apk add --no-cache \
     py3-pip \
     py3-numpy \
     py3-opencv \
-    tesseract-ocr \
-    tesseract-ocr-data-eng \
-    tesseract-ocr-data-nld \
-    tesseract-ocr-data-deu \
-    tesseract-ocr-data-fra \
     libstdc++ \
     libgomp
 

@@ -1,23 +1,7 @@
 const API = "/api";
 
-const state = {
-  cameras: [],
-  zones: [],
-  fleet: [],
-  spots: [],
-  selectedCameraId: null,
-  snapshotUrl: null,
-  image: null,
-  drawingPoints: [],
-  drawingMode: false,
-  editingZoneId: null,
-  selectedZoneId: null,
-};
+const state = { bays: [], fleet: [], spots: [], system: {} };
 
-const canvas = document.getElementById("zone-canvas");
-const ctx = canvas.getContext("2d");
-
-// --- Tabs ---
 document.querySelectorAll(".tab").forEach((tab) => {
   tab.addEventListener("click", () => {
     document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
@@ -34,304 +18,150 @@ async function api(path, options = {}) {
     headers: { "Content-Type": "application/json" },
     ...options,
   });
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(err || res.statusText);
-  }
+  if (!res.ok) throw new Error(await res.text() || res.statusText);
   return res.json();
 }
 
-// --- Cameras ---
-async function loadCameras() {
-  state.cameras = await api("/cameras");
-  const select = document.getElementById("camera-select");
-  select.innerHTML = state.cameras
-    .map((c) => `<option value="${c.id}">${c.name} (${c.entity_id})</option>`)
-    .join("");
-
-  if (state.cameras.length && !state.selectedCameraId) {
-    state.selectedCameraId = state.cameras[0].id;
-  }
-  if (state.selectedCameraId) {
-    select.value = state.selectedCameraId;
-    await loadSnapshot();
-    await loadZones();
-  }
+async function loadBays() {
+  state.bays = await api("/bays");
+  renderBays();
 }
 
-document.getElementById("camera-select").addEventListener("change", async (e) => {
-  state.selectedCameraId = e.target.value;
-  state.drawingPoints = [];
-  state.editingZoneId = null;
-  state.selectedZoneId = null;
-  hideZoneForm();
-  await loadSnapshot();
-  await loadZones();
-});
-
-async function loadSnapshot() {
-  if (!state.selectedCameraId) return;
-  const data = await api(`/snapshots/${state.selectedCameraId}/latest`);
-  state.snapshotUrl = data.url + "?t=" + Date.now();
-  await new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      state.image = img;
-      resizeCanvas();
-      drawCanvas();
-      resolve();
-    };
-    img.onerror = reject;
-    img.src = state.snapshotUrl;
-  });
-}
-
-function resizeCanvas() {
-  if (!state.image) return;
-  const maxW = canvas.parentElement.clientWidth - 2;
-  const scale = Math.min(1, maxW / state.image.width);
-  canvas.width = state.image.width * scale;
-  canvas.height = state.image.height * scale;
-}
-
-function toNormalized(x, y) {
-  return { x: x / canvas.width, y: y / canvas.height };
-}
-
-function toCanvas(norm) {
-  return { x: norm.x * canvas.width, y: norm.y * canvas.height };
-}
-
-function drawPolygon(points, stroke, fill, label) {
-  if (!points.length) return;
-  ctx.beginPath();
-  const first = toCanvas(points[0]);
-  ctx.moveTo(first.x, first.y);
-  points.slice(1).forEach((p) => {
-    const c = toCanvas(p);
-    ctx.lineTo(c.x, c.y);
-  });
-  ctx.closePath();
-  ctx.fillStyle = fill;
-  ctx.fill();
-  ctx.strokeStyle = stroke;
-  ctx.lineWidth = 2;
-  ctx.stroke();
-
-  if (label) {
-    const cx = points.reduce((s, p) => s + p.x, 0) / points.length;
-    const cy = points.reduce((s, p) => s + p.y, 0) / points.length;
-    const c = toCanvas({ x: cx, y: cy });
-    ctx.fillStyle = "#fff";
-    ctx.font = "bold 14px sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText(label, c.x, c.y);
-  }
-}
-
-function drawCanvas() {
-  if (!state.image) return;
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(state.image, 0, 0, canvas.width, canvas.height);
-
-  state.zones.forEach((zone) => {
-    const isSelected = zone.id === state.selectedZoneId;
-    drawPolygon(
-      zone.points,
-      isSelected ? "#fbbf24" : "#60a5fa",
-      isSelected ? "rgba(251, 191, 36, 0.3)" : "rgba(59, 130, 246, 0.25)",
-      zone.name
-    );
-  });
-
-  if (state.drawingPoints.length) {
-    ctx.beginPath();
-    const first = toCanvas(state.drawingPoints[0]);
-    ctx.moveTo(first.x, first.y);
-    state.drawingPoints.slice(1).forEach((p) => {
-      const c = toCanvas(p);
-      ctx.lineTo(c.x, c.y);
-    });
-    ctx.strokeStyle = "#fbbf24";
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    state.drawingPoints.forEach((p, i) => {
-      const c = toCanvas(p);
-      ctx.beginPath();
-      ctx.arc(c.x, c.y, i === 0 ? 8 : 5, 0, Math.PI * 2);
-      ctx.fillStyle = i === 0 ? "#fbbf24" : "#fff";
-      ctx.fill();
-      ctx.strokeStyle = "#000";
-      ctx.stroke();
-    });
-  }
-}
-
-window.addEventListener("resize", () => {
-  resizeCanvas();
-  drawCanvas();
-});
-
-canvas.addEventListener("click", (e) => {
-  if (!state.drawingMode) return;
-  const rect = canvas.getBoundingClientRect();
-  const x = e.clientX - rect.left;
-  const y = e.clientY - rect.top;
-  const norm = toNormalized(x, y);
-
-  if (state.drawingPoints.length >= 3) {
-    const first = toCanvas(state.drawingPoints[0]);
-    const dist = Math.hypot(x - first.x, y - first.y);
-    if (dist < 12) {
-      showZoneForm();
-      return;
-    }
-  }
-
-  state.drawingPoints.push(norm);
-  drawCanvas();
-});
-
-canvas.addEventListener("dblclick", () => {
-  if (state.drawingMode && state.drawingPoints.length >= 3) {
-    showZoneForm();
-  }
-});
-
-function showZoneForm() {
-  document.getElementById("zone-form").classList.remove("hidden");
-  document.getElementById("new-zone").classList.add("hidden");
-  document.getElementById("clear-drawing").classList.remove("hidden");
-  const title = document.getElementById("zone-form-title");
-  title.textContent = state.editingZoneId ? "Edit Zone" : "New Zone";
-  if (!state.editingZoneId) {
-    document.getElementById("zone-name").value = `Spot ${state.zones.length + 1}`;
-  }
-}
-
-function hideZoneForm() {
-  document.getElementById("zone-form").classList.add("hidden");
-  document.getElementById("new-zone").classList.remove("hidden");
-  document.getElementById("clear-drawing").classList.add("hidden");
-  state.drawingMode = false;
-  state.drawingPoints = [];
-  state.editingZoneId = null;
-  drawCanvas();
-}
-
-document.getElementById("new-zone").addEventListener("click", () => {
-  state.drawingMode = true;
-  state.drawingPoints = [];
-  state.editingZoneId = null;
-  document.getElementById("zone-hint").textContent =
-    "Click to add points. Double-click or click the first point to finish.";
-});
-
-document.getElementById("clear-drawing").addEventListener("click", hideZoneForm);
-document.getElementById("cancel-zone").addEventListener("click", hideZoneForm);
-
-document.getElementById("zone-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const name = document.getElementById("zone-name").value.trim();
-  const points = state.editingZoneId
-    ? state.zones.find((z) => z.id === state.editingZoneId)?.points || state.drawingPoints
-    : state.drawingPoints;
-
-  if (points.length < 3) {
-    alert("A zone needs at least 3 points");
+function renderBays() {
+  const container = document.getElementById("bay-list");
+  if (!state.bays.length) {
+    container.innerHTML = `<p class="hint">No bays configured yet. Add one or import from add-on config.</p>`;
     return;
   }
 
-  const body = {
-    camera_id: state.selectedCameraId,
-    name,
-    points,
-    sort_order: state.zones.length,
-  };
-
-  if (state.editingZoneId) {
-    await api(`/zones/${state.editingZoneId}`, { method: "PUT", body: JSON.stringify(body) });
-  } else {
-    await api("/zones", { method: "POST", body: JSON.stringify(body) });
-  }
-
-  hideZoneForm();
-  await loadZones();
-});
-
-async function loadZones() {
-  if (!state.selectedCameraId) return;
-  state.zones = await api(`/zones?camera_id=${state.selectedCameraId}`);
-  renderZoneList();
-  drawCanvas();
-}
-
-function renderZoneList() {
-  const list = document.getElementById("zone-list");
-  list.innerHTML = state.zones
+  container.innerHTML = state.bays
     .map(
-      (z) => `
-    <li data-id="${z.id}" class="${z.id === state.selectedZoneId ? "selected" : ""}">
-      <span>${z.name}</span>
-      <span>
-        <button class="btn small edit-zone" data-id="${z.id}">Edit</button>
-        <button class="btn small danger delete-zone" data-id="${z.id}">Del</button>
-      </span>
-    </li>`
+      (bay) => `
+    <article class="bay-card" data-id="${bay.id}">
+      <div class="bay-card-header">
+        <h3>${bay.name}</h3>
+        <code>${bay.camera_entity_id}</code>
+      </div>
+      <div class="bay-preview" id="preview-${bay.id}">
+        <span class="hint">No snapshot yet</span>
+      </div>
+      <div class="bay-actions">
+        <button class="btn small refresh-snap" data-id="${bay.id}">Snapshot</button>
+        <button class="btn small primary analyze-one" data-id="${bay.id}">Analyze</button>
+        <button class="btn small edit-bay" data-id="${bay.id}">Edit</button>
+        <button class="btn small danger delete-bay" data-id="${bay.id}">Delete</button>
+      </div>
+    </article>`
     )
     .join("");
 
-  list.querySelectorAll("li").forEach((li) => {
-    li.addEventListener("click", (e) => {
-      if (e.target.tagName === "BUTTON") return;
-      state.selectedZoneId = li.dataset.id;
-      renderZoneList();
-      drawCanvas();
-    });
+  container.querySelectorAll(".refresh-snap").forEach((btn) => {
+    btn.addEventListener("click", () => loadBaySnapshot(btn.dataset.id));
+  });
+  container.querySelectorAll(".analyze-one").forEach((btn) => {
+    btn.addEventListener("click", () => analyzeBay(btn.dataset.id));
+  });
+  container.querySelectorAll(".edit-bay").forEach((btn) => {
+    btn.addEventListener("click", () => editBay(btn.dataset.id));
+  });
+  container.querySelectorAll(".delete-bay").forEach((btn) => {
+    btn.addEventListener("click", () => deleteBay(btn.dataset.id));
   });
 
-  list.querySelectorAll(".edit-zone").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const zone = state.zones.find((z) => z.id === btn.dataset.id);
-      state.editingZoneId = zone.id;
-      state.drawingPoints = [...zone.points];
-      state.drawingMode = true;
-      document.getElementById("zone-name").value = zone.name;
-      showZoneForm();
-      drawCanvas();
-    });
-  });
-
-  list.querySelectorAll(".delete-zone").forEach((btn) => {
-    btn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      if (!confirm("Delete this zone?")) return;
-      await api(`/zones/${btn.dataset.id}`, { method: "DELETE" });
-      await loadZones();
-    });
-  });
+  state.bays.forEach((bay) => loadBaySnapshot(bay.id, true));
 }
 
-document.getElementById("refresh-snapshot").addEventListener("click", loadSnapshot);
+async function loadBaySnapshot(bayId, silent = false) {
+  const preview = document.getElementById(`preview-${bayId}`);
+  if (!preview) return;
+  try {
+    const data = await api(`/snapshots/${bayId}/latest`);
+    preview.innerHTML = `<img src="${data.url}?t=${Date.now()}" alt="Bay snapshot">`;
+  } catch (err) {
+    if (!silent) alert("Snapshot failed: " + err.message);
+  }
+}
 
-document.getElementById("analyze-now").addEventListener("click", async () => {
-  const btn = document.getElementById("analyze-now");
+async function analyzeBay(bayId) {
+  try {
+    await api(`/analyze/${bayId}`, { method: "POST" });
+    await loadBaySnapshot(bayId);
+    alert("Analysis complete. Check Live Status.");
+  } catch (err) {
+    alert("Analysis failed: " + err.message);
+  }
+}
+
+document.getElementById("analyze-all").addEventListener("click", async () => {
+  const btn = document.getElementById("analyze-all");
   btn.disabled = true;
   btn.textContent = "Analyzing…";
   try {
-    await api(`/analyze/${state.selectedCameraId}`, { method: "POST" });
-    alert("Analysis complete. Check the Live Status tab.");
+    const result = await api("/analyze", { method: "POST" });
+    alert(`Done: ${result.analyzed}/${result.bays} bays` + (result.errors.length ? `\nErrors:\n${result.errors.join("\n")}` : ""));
+    await loadBays();
   } catch (err) {
     alert("Analysis failed: " + err.message);
   } finally {
     btn.disabled = false;
-    btn.textContent = "Analyze Now";
+    btn.textContent = "Analyze all bays";
   }
 });
 
-// --- Fleet ---
+document.getElementById("add-bay").addEventListener("click", () => {
+  showModal(
+    "Add parking bay",
+    [
+      { id: "bay-name", label: "Bay name", type: "text", placeholder: "Bay 1" },
+      { id: "bay-entity", label: "Camera entity ID", type: "text", placeholder: "camera.parking_bay_1" },
+      { id: "bay-order", label: "Capture order", type: "number", placeholder: "0" },
+    ],
+    async () => {
+      await api("/bays", {
+        method: "POST",
+        body: JSON.stringify({
+          name: document.getElementById("bay-name").value,
+          camera_entity_id: document.getElementById("bay-entity").value,
+          sort_order: parseInt(document.getElementById("bay-order").value || "0", 10),
+        }),
+      });
+      hideModal();
+      loadBays();
+    }
+  );
+});
+
+function editBay(bayId) {
+  const bay = state.bays.find((b) => b.id === bayId);
+  if (!bay) return;
+  showModal(
+    "Edit parking bay",
+    [
+      { id: "bay-name", label: "Bay name", type: "text", value: bay.name },
+      { id: "bay-entity", label: "Camera entity ID", type: "text", value: bay.camera_entity_id },
+      { id: "bay-order", label: "Capture order", type: "number", value: bay.sort_order },
+    ],
+    async () => {
+      await api(`/bays/${bayId}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          name: document.getElementById("bay-name").value,
+          camera_entity_id: document.getElementById("bay-entity").value,
+          sort_order: parseInt(document.getElementById("bay-order").value || "0", 10),
+        }),
+      });
+      hideModal();
+      loadBays();
+    }
+  );
+}
+
+async function deleteBay(bayId) {
+  if (!confirm("Delete this bay?")) return;
+  await api(`/bays/${bayId}`, { method: "DELETE" });
+  loadBays();
+}
+
 async function loadFleet() {
   state.fleet = await api("/fleet");
   const tbody = document.querySelector("#fleet-table tbody");
@@ -340,7 +170,7 @@ async function loadFleet() {
       (car) => `
     <tr>
       <td>${car.car_number}</td>
-      <td><code>${car.license_plate}</code></td>
+      <td><code>${car.aruco_id}</code></td>
       <td>${car.notes || "—"}</td>
       <td><button class="btn small danger" data-num="${car.car_number}">Delete</button></td>
     </tr>`
@@ -349,7 +179,7 @@ async function loadFleet() {
 
   tbody.querySelectorAll("button").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      if (!confirm("Remove this car from fleet?")) return;
+      if (!confirm("Remove this car?")) return;
       await api(`/fleet/${btn.dataset.num}`, { method: "DELETE" });
       loadFleet();
     });
@@ -357,30 +187,33 @@ async function loadFleet() {
 }
 
 document.getElementById("add-car").addEventListener("click", () => {
-  showModal("Add Fleet Car", [
-    { id: "car-number", label: "Car Number", type: "number", placeholder: "1" },
-    { id: "car-plate", label: "License Plate", type: "text", placeholder: "AB-123-CD" },
-    { id: "car-notes", label: "Notes (optional)", type: "text", placeholder: "Red van" },
-  ], async () => {
-    const car_number = parseInt(document.getElementById("car-number").value, 10);
-    const license_plate = document.getElementById("car-plate").value;
-    const notes = document.getElementById("car-notes").value;
-    await api("/fleet", {
-      method: "POST",
-      body: JSON.stringify({ car_number, license_plate, notes }),
-    });
-    hideModal();
-    loadFleet();
-  });
+  showModal(
+    "Add fleet car",
+    [
+      { id: "car-number", label: "Car number", type: "number", placeholder: "1" },
+      { id: "car-aruco", label: "ArUco marker ID", type: "number", placeholder: "1" },
+      { id: "car-notes", label: "Notes", type: "text", placeholder: "Red van" },
+    ],
+    async () => {
+      await api("/fleet", {
+        method: "POST",
+        body: JSON.stringify({
+          car_number: parseInt(document.getElementById("car-number").value, 10),
+          aruco_id: parseInt(document.getElementById("car-aruco").value, 10),
+          notes: document.getElementById("car-notes").value,
+        }),
+      });
+      hideModal();
+      loadFleet();
+    }
+  );
 });
 
-// --- Status ---
 async function loadStatus() {
   state.spots = await api("/spots");
   const grid = document.getElementById("status-grid");
-
   if (!state.spots.length) {
-    grid.innerHTML = `<p class="hint">No spot data yet. Configure zones and run analysis.</p>`;
+    grid.innerHTML = `<p class="hint">No results yet. Configure bays and run analysis.</p>`;
     return;
   }
 
@@ -389,30 +222,14 @@ async function loadStatus() {
       const confPct = Math.round((s.confidence || 0) * 100);
       return `
       <div class="status-card ${s.occupied ? "occupied" : "empty"}">
-        <h4>${s.zone_name}</h4>
-        <div class="meta">${s.camera_name}</div>
-        <div class="status-row">
-          <span class="label">Status</span>
-          <span class="badge ${s.occupied ? "occupied" : "empty"}">${s.occupied ? "Occupied" : "Empty"}</span>
-        </div>
-        <div class="status-row">
-          <span class="label">Car #</span>
-          <span>${s.car_number ?? "—"}</span>
-        </div>
-        <div class="status-row">
-          <span class="label">Plate read</span>
-          <span><code>${s.plate_read || "—"}</code></span>
-        </div>
-        <div class="status-row">
-          <span class="label">Matched</span>
-          <span><code>${s.plate_matched || "—"}</code></span>
-        </div>
-        <div class="status-row">
-          <span class="label">Confidence</span>
-          <span>${confPct}%</span>
-        </div>
+        <h4>${s.bay_name}</h4>
+        <div class="meta">${s.camera_entity_id}</div>
+        <div class="status-row"><span class="label">Status</span><span class="badge ${s.occupied ? "occupied" : "empty"}">${s.occupied ? "Occupied" : "Empty"}</span></div>
+        <div class="status-row"><span class="label">Car #</span><span>${s.car_number ?? "—"}</span></div>
+        <div class="status-row"><span class="label">ArUco ID</span><span><code>${s.aruco_id_detected ?? "—"}</code></span></div>
+        <div class="status-row"><span class="label">Confidence</span><span>${confPct}%</span></div>
         <div class="confidence-bar"><span style="width:${confPct}%"></span></div>
-        <div class="meta" style="margin-top:0.5rem">${s.analyzed_at ? new Date(s.analyzed_at).toLocaleString() : ""}</div>
+        <div class="meta">${s.analyzed_at ? new Date(s.analyzed_at).toLocaleString() : ""}</div>
       </div>`;
     })
     .join("");
@@ -420,66 +237,32 @@ async function loadStatus() {
 
 document.getElementById("refresh-status").addEventListener("click", loadStatus);
 
-// --- Settings ---
 async function loadSettings() {
-  const cameras = await api("/cameras");
-  document.getElementById("camera-list").innerHTML = cameras
-    .map(
-      (c) => `
-    <li>
-      <span><strong>${c.name}</strong> — <code>${c.entity_id}</code></span>
-      <button class="btn small danger" data-id="${c.id}">Delete</button>
-    </li>`
-    )
-    .join("");
-
-  document.querySelectorAll("#camera-list button").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      if (!confirm("Delete camera and its zones?")) return;
-      await api(`/cameras/${btn.dataset.id}`, { method: "DELETE" });
-      loadSettings();
-      loadCameras();
-    });
-  });
-
-  const info = await api("/status");
-  document.getElementById("system-info").textContent = JSON.stringify(info, null, 2);
+  state.system = await api("/status");
+  document.getElementById("system-info").textContent = JSON.stringify(state.system, null, 2);
 }
 
-document.getElementById("camera-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const name = document.getElementById("cam-name").value;
-  const entity_id = document.getElementById("cam-entity").value;
-  await api("/cameras", { method: "POST", body: JSON.stringify({ name, entity_id }) });
-  e.target.reset();
-  loadSettings();
-  loadCameras();
+document.getElementById("import-addon-bays").addEventListener("click", async () => {
+  const imported = await api("/import-addon-bays", { method: "POST" });
+  alert(`Imported ${imported.length} bay(s)`);
+  loadBays();
 });
 
-document.getElementById("import-addon-cams").addEventListener("click", async () => {
-  const imported = await api("/import-addon-cameras", { method: "POST" });
-  alert(`Imported ${imported.length} camera(s)`);
-  loadSettings();
-  loadCameras();
-});
-
-// --- Modal ---
 function showModal(title, fields, onConfirm) {
   document.getElementById("modal-title").textContent = title;
   document.getElementById("modal-body").innerHTML = fields
     .map(
       (f) => `
     <label>${f.label}
-      <input type="${f.type}" id="${f.id}" placeholder="${f.placeholder || ""}">
+      <input type="${f.type}" id="${f.id}" placeholder="${f.placeholder || ""}" value="${f.value ?? ""}">
     </label>`
     )
     .join("");
   document.getElementById("modal").classList.remove("hidden");
-
   const confirm = document.getElementById("modal-confirm");
-  const newConfirm = confirm.cloneNode(true);
-  confirm.parentNode.replaceChild(newConfirm, confirm);
-  newConfirm.addEventListener("click", onConfirm);
+  const clone = confirm.cloneNode(true);
+  confirm.parentNode.replaceChild(clone, confirm);
+  clone.addEventListener("click", onConfirm);
 }
 
 function hideModal() {
@@ -488,15 +271,13 @@ function hideModal() {
 
 document.getElementById("modal-cancel").addEventListener("click", hideModal);
 
-// --- Init ---
 async function init() {
   try {
-    await loadCameras();
+    state.system = await api("/status");
+    await loadBays();
     await loadFleet();
   } catch (err) {
-    console.error(err);
-    document.querySelector("main").innerHTML =
-      `<p style="color:#ef4444">Failed to connect to API: ${err.message}</p>`;
+    document.querySelector("main").innerHTML = `<p class="error">Failed to connect: ${err.message}</p>`;
   }
 }
 

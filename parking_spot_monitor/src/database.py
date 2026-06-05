@@ -1,6 +1,5 @@
-"""SQLite persistence for cameras, zones, fleet, and analysis results."""
+"""SQLite persistence for parking bays, fleet, and analysis results."""
 
-import json
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -10,40 +9,30 @@ import aiosqlite
 from src.config import settings
 
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS cameras (
+CREATE TABLE IF NOT EXISTS bays (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    entity_id TEXT NOT NULL UNIQUE,
-    created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS zones (
-    id TEXT PRIMARY KEY,
-    camera_id TEXT NOT NULL,
-    name TEXT NOT NULL,
-    points_json TEXT NOT NULL,
+    camera_entity_id TEXT NOT NULL UNIQUE,
     sort_order INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL,
-    FOREIGN KEY (camera_id) REFERENCES cameras(id) ON DELETE CASCADE
+    created_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS fleet (
     car_number INTEGER PRIMARY KEY,
-    license_plate TEXT NOT NULL UNIQUE,
+    aruco_id INTEGER NOT NULL UNIQUE,
     notes TEXT,
     created_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS spot_states (
-    zone_id TEXT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS bay_states (
+    bay_id TEXT PRIMARY KEY,
     occupied INTEGER NOT NULL DEFAULT 0,
     car_number INTEGER,
-    plate_read TEXT,
-    plate_matched TEXT,
+    aruco_id_detected INTEGER,
     confidence REAL NOT NULL DEFAULT 0,
     analyzed_at TEXT,
     snapshot_path TEXT,
-    FOREIGN KEY (zone_id) REFERENCES zones(id) ON DELETE CASCADE
+    FOREIGN KEY (bay_id) REFERENCES bays(id) ON DELETE CASCADE
 );
 """
 
@@ -71,65 +60,38 @@ class Database:
         finally:
             await db.close()
 
-    async def list_cameras(self) -> list[dict]:
+    async def list_bays(self) -> list[dict]:
         async with self.connect() as db:
-            cur = await db.execute("SELECT * FROM cameras ORDER BY name")
+            cur = await db.execute("SELECT * FROM bays ORDER BY sort_order, name")
             return [dict(row) for row in await cur.fetchall()]
 
-    async def upsert_camera(self, camera_id: str, name: str, entity_id: str) -> dict:
-        async with self.connect() as db:
-            await db.execute(
-                """
-                INSERT INTO cameras (id, name, entity_id, created_at)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET name=excluded.name, entity_id=excluded.entity_id
-                """,
-                (camera_id, name, entity_id, _now()),
-            )
-            await db.commit()
-        return {"id": camera_id, "name": name, "entity_id": entity_id}
-
-    async def delete_camera(self, camera_id: str) -> None:
-        async with self.connect() as db:
-            await db.execute("DELETE FROM cameras WHERE id = ?", (camera_id,))
-            await db.commit()
-
-    async def list_zones(self, camera_id: str | None = None) -> list[dict]:
-        query = "SELECT * FROM zones"
-        params: tuple = ()
-        if camera_id:
-            query += " WHERE camera_id = ?"
-            params = (camera_id,)
-        query += " ORDER BY sort_order, name"
-        async with self.connect() as db:
-            cur = await db.execute(query, params)
-            rows = [dict(row) for row in await cur.fetchall()]
-            for row in rows:
-                row["points"] = json.loads(row.pop("points_json"))
-            return rows
-
-    async def upsert_zone(
-        self, zone_id: str, camera_id: str, name: str, points: list, sort_order: int = 0
+    async def upsert_bay(
+        self, bay_id: str, name: str, camera_entity_id: str, sort_order: int = 0
     ) -> dict:
         async with self.connect() as db:
             await db.execute(
                 """
-                INSERT INTO zones (id, camera_id, name, points_json, sort_order, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO bays (id, name, camera_entity_id, sort_order, created_at)
+                VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     name=excluded.name,
-                    points_json=excluded.points_json,
+                    camera_entity_id=excluded.camera_entity_id,
                     sort_order=excluded.sort_order
                 """,
-                (zone_id, camera_id, name, json.dumps(points), sort_order, _now()),
+                (bay_id, name, camera_entity_id, sort_order, _now()),
             )
             await db.commit()
-        return {"id": zone_id, "camera_id": camera_id, "name": name, "points": points}
+        return {
+            "id": bay_id,
+            "name": name,
+            "camera_entity_id": camera_entity_id,
+            "sort_order": sort_order,
+        }
 
-    async def delete_zone(self, zone_id: str) -> None:
+    async def delete_bay(self, bay_id: str) -> None:
         async with self.connect() as db:
-            await db.execute("DELETE FROM zones WHERE id = ?", (zone_id,))
-            await db.execute("DELETE FROM spot_states WHERE zone_id = ?", (zone_id,))
+            await db.execute("DELETE FROM bays WHERE id = ?", (bay_id,))
+            await db.execute("DELETE FROM bay_states WHERE bay_id = ?", (bay_id,))
             await db.commit()
 
     async def list_fleet(self) -> list[dict]:
@@ -137,58 +99,55 @@ class Database:
             cur = await db.execute("SELECT * FROM fleet ORDER BY car_number")
             return [dict(row) for row in await cur.fetchall()]
 
-    async def upsert_fleet_car(self, car_number: int, license_plate: str, notes: str = "") -> dict:
+    async def upsert_fleet_car(self, car_number: int, aruco_id: int, notes: str = "") -> dict:
         async with self.connect() as db:
             await db.execute(
                 """
-                INSERT INTO fleet (car_number, license_plate, notes, created_at)
+                INSERT INTO fleet (car_number, aruco_id, notes, created_at)
                 VALUES (?, ?, ?, ?)
                 ON CONFLICT(car_number) DO UPDATE SET
-                    license_plate=excluded.license_plate,
+                    aruco_id=excluded.aruco_id,
                     notes=excluded.notes
                 """,
-                (car_number, license_plate.upper().strip(), notes, _now()),
+                (car_number, aruco_id, notes, _now()),
             )
             await db.commit()
-        return {"car_number": car_number, "license_plate": license_plate.upper().strip(), "notes": notes}
+        return {"car_number": car_number, "aruco_id": aruco_id, "notes": notes}
 
     async def delete_fleet_car(self, car_number: int) -> None:
         async with self.connect() as db:
             await db.execute("DELETE FROM fleet WHERE car_number = ?", (car_number,))
             await db.commit()
 
-    async def upsert_spot_state(
+    async def upsert_bay_state(
         self,
-        zone_id: str,
+        bay_id: str,
         occupied: bool,
         car_number: int | None,
-        plate_read: str | None,
-        plate_matched: str | None,
+        aruco_id_detected: int | None,
         confidence: float,
         snapshot_path: str | None,
     ) -> None:
         async with self.connect() as db:
             await db.execute(
                 """
-                INSERT INTO spot_states (
-                    zone_id, occupied, car_number, plate_read, plate_matched,
+                INSERT INTO bay_states (
+                    bay_id, occupied, car_number, aruco_id_detected,
                     confidence, analyzed_at, snapshot_path
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(zone_id) DO UPDATE SET
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(bay_id) DO UPDATE SET
                     occupied=excluded.occupied,
                     car_number=excluded.car_number,
-                    plate_read=excluded.plate_read,
-                    plate_matched=excluded.plate_matched,
+                    aruco_id_detected=excluded.aruco_id_detected,
                     confidence=excluded.confidence,
                     analyzed_at=excluded.analyzed_at,
                     snapshot_path=excluded.snapshot_path
                 """,
                 (
-                    zone_id,
+                    bay_id,
                     int(occupied),
                     car_number,
-                    plate_read,
-                    plate_matched,
+                    aruco_id_detected,
                     confidence,
                     _now(),
                     snapshot_path,
@@ -196,31 +155,20 @@ class Database:
             )
             await db.commit()
 
-    async def list_spot_states(self) -> list[dict]:
+    async def list_bay_states(self) -> list[dict]:
         async with self.connect() as db:
             cur = await db.execute(
                 """
-                SELECT s.*, z.name AS zone_name, z.camera_id, c.name AS camera_name
-                FROM spot_states s
-                JOIN zones z ON z.id = s.zone_id
-                JOIN cameras c ON c.id = z.camera_id
-                ORDER BY c.name, z.sort_order, z.name
+                SELECT s.*, b.name AS bay_name, b.camera_entity_id
+                FROM bay_states s
+                JOIN bays b ON b.id = s.bay_id
+                ORDER BY b.sort_order, b.name
                 """
             )
             rows = [dict(row) for row in await cur.fetchall()]
             for row in rows:
                 row["occupied"] = bool(row["occupied"])
             return rows
-
-    async def get_spot_state(self, zone_id: str) -> dict | None:
-        async with self.connect() as db:
-            cur = await db.execute("SELECT * FROM spot_states WHERE zone_id = ?", (zone_id,))
-            row = await cur.fetchone()
-            if not row:
-                return None
-            result = dict(row)
-            result["occupied"] = bool(result["occupied"])
-            return result
 
 
 db = Database()

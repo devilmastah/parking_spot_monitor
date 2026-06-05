@@ -1,141 +1,121 @@
-"""Scheduled snapshot capture and zone analysis."""
+"""Sequential bay capture and ArUco analysis."""
 
+import asyncio
 import logging
 import os
 
 import cv2
 
+from src.aruco import analyze_image
 from src.config import settings
 from src.database import db
 from src.ha_client import ha_client
 from src.mqtt_publisher import mqtt_publisher
-from src.ocr import analyze_zone, crop_zone
 
 logger = logging.getLogger(__name__)
-
-
-async def sync_addon_cameras() -> None:
-    """Import cameras from addon options into the database."""
-    addon_cameras = settings.load_addon_cameras()
-    for cam in addon_cameras:
-        entity_id = cam.get("entity_id", "")
-        name = cam.get("name") or entity_id
-        if not entity_id:
-            continue
-        camera_id = _slug_id(entity_id)
-        await db.upsert_camera(camera_id, name, entity_id)
 
 
 def _slug_id(text: str) -> str:
     return text.replace(".", "_").replace(" ", "_").lower()
 
 
-async def analyze_all_cameras() -> dict:
-    await sync_addon_cameras()
-    cameras = await db.list_cameras()
+async def sync_addon_bays() -> None:
+    """Import bays from add-on options into the database."""
+    for bay in settings.load_addon_bays():
+        entity_id = bay.get("camera_entity_id", "")
+        name = bay.get("name") or entity_id
+        if not entity_id:
+            continue
+        bay_id = _slug_id(entity_id)
+        sort_order = bay.get("sort_order", 0)
+        await db.upsert_bay(bay_id, name, entity_id, sort_order)
+
+
+async def _analyze_bay_image(bay: dict, image_path: str, fleet: list[dict]) -> dict:
+    image = cv2.imread(image_path)
+    if image is None:
+        raise RuntimeError(f"Could not read snapshot: {image_path}")
+
+    result = analyze_image(image, fleet, settings.aruco_dictionary)
+    await db.upsert_bay_state(
+        bay_id=bay["id"],
+        occupied=result.occupied,
+        car_number=result.car_number,
+        aruco_id_detected=result.aruco_id_detected,
+        confidence=result.confidence,
+        snapshot_path=image_path,
+    )
+    mqtt_publisher.publish_bay_state(
+        bay_id=bay["id"],
+        bay_name=bay["name"],
+        occupied=result.occupied,
+        car_number=result.car_number,
+        aruco_id_detected=result.aruco_id_detected,
+        confidence=result.confidence,
+    )
+    return {
+        "bay_id": bay["id"],
+        "bay_name": bay["name"],
+        "occupied": result.occupied,
+        "car_number": result.car_number,
+        "aruco_id_detected": result.aruco_id_detected,
+        "confidence": result.confidence,
+        "snapshot_path": image_path,
+    }
+
+
+async def analyze_all_bays() -> dict:
+    """Capture and analyze each bay one at a time."""
+    await sync_addon_bays()
+    bays = await db.list_bays()
     fleet = await db.list_fleet()
-    results = {"cameras": len(cameras), "zones_analyzed": 0, "errors": []}
+    results = {"bays": len(bays), "analyzed": 0, "details": [], "errors": []}
 
-    for camera in cameras:
+    for index, bay in enumerate(bays):
+        if index > 0 and settings.capture_delay_seconds > 0:
+            logger.info(
+                "Waiting %ss before next bay capture",
+                settings.capture_delay_seconds,
+            )
+            await asyncio.sleep(settings.capture_delay_seconds)
+
         try:
-            snapshot_path = ha_client.snapshot_filename(camera["id"])
-            await ha_client.fetch_snapshot(camera["entity_id"], snapshot_path)
-            image = cv2.imread(snapshot_path)
-            if image is None:
-                raise RuntimeError(f"Could not read snapshot: {snapshot_path}")
-
-            zones = await db.list_zones(camera["id"])
-            for zone in zones:
-                crop = crop_zone(image, zone["points"])
-                if crop.size == 0:
-                    continue
-
-                ocr = analyze_zone(crop, fleet)
-                await db.upsert_spot_state(
-                    zone_id=zone["id"],
-                    occupied=ocr.occupied,
-                    car_number=ocr.car_number,
-                    plate_read=ocr.plate_read or None,
-                    plate_matched=ocr.plate_matched,
-                    confidence=ocr.confidence,
-                    snapshot_path=snapshot_path,
-                )
-                mqtt_publisher.publish_spot_state(
-                    zone_id=zone["id"],
-                    zone_name=zone["name"],
-                    camera_name=camera["name"],
-                    occupied=ocr.occupied,
-                    car_number=ocr.car_number,
-                    plate_read=ocr.plate_read or None,
-                    confidence=ocr.confidence,
-                )
-                results["zones_analyzed"] += 1
+            snapshot_path = ha_client.snapshot_filename(bay["id"])
+            await ha_client.fetch_snapshot(bay["camera_entity_id"], snapshot_path)
+            detail = await _analyze_bay_image(bay, snapshot_path, fleet)
+            results["details"].append(detail)
+            results["analyzed"] += 1
         except Exception as exc:
-            logger.exception("Analysis failed for camera %s", camera.get("name"))
-            results["errors"].append(f"{camera.get('name')}: {exc}")
+            logger.exception("Analysis failed for bay %s", bay.get("name"))
+            results["errors"].append(f"{bay.get('name')}: {exc}")
 
     return results
 
 
-async def analyze_camera_snapshot(camera_id: str, snapshot_path: str) -> list[dict]:
-    """Analyze an uploaded or existing snapshot (used by manual trigger)."""
+async def analyze_single_bay(bay_id: str, fetch_fresh: bool = True) -> dict:
+    bays = {b["id"]: b for b in await db.list_bays()}
+    bay = bays.get(bay_id)
+    if not bay:
+        raise ValueError(f"Unknown bay: {bay_id}")
+
     fleet = await db.list_fleet()
-    zones = await db.list_zones(camera_id)
-    cameras = {c["id"]: c for c in await db.list_cameras()}
-    camera = cameras.get(camera_id)
-    if not camera:
-        raise ValueError(f"Unknown camera: {camera_id}")
+    snapshot_path = latest_snapshot_for_bay(bay_id)
 
-    image = cv2.imread(snapshot_path)
-    if image is None:
-        raise ValueError(f"Could not read image: {snapshot_path}")
+    if fetch_fresh or not snapshot_path:
+        snapshot_path = ha_client.snapshot_filename(bay_id)
+        await ha_client.fetch_snapshot(bay["camera_entity_id"], snapshot_path)
 
-    outputs = []
-    for zone in zones:
-        crop = crop_zone(image, zone["points"])
-        if crop.size == 0:
-            continue
-        ocr = analyze_zone(crop, fleet)
-        await db.upsert_spot_state(
-            zone_id=zone["id"],
-            occupied=ocr.occupied,
-            car_number=ocr.car_number,
-            plate_read=ocr.plate_read or None,
-            plate_matched=ocr.plate_matched,
-            confidence=ocr.confidence,
-            snapshot_path=snapshot_path,
-        )
-        mqtt_publisher.publish_spot_state(
-            zone_id=zone["id"],
-            zone_name=zone["name"],
-            camera_name=camera["name"],
-            occupied=ocr.occupied,
-            car_number=ocr.car_number,
-            plate_read=ocr.plate_read or None,
-            confidence=ocr.confidence,
-        )
-        outputs.append(
-            {
-                "zone_id": zone["id"],
-                "zone_name": zone["name"],
-                "occupied": ocr.occupied,
-                "car_number": ocr.car_number,
-                "plate_read": ocr.plate_read,
-                "plate_matched": ocr.plate_matched,
-                "confidence": ocr.confidence,
-            }
-        )
-    return outputs
+    return await _analyze_bay_image(bay, snapshot_path, fleet)
 
 
-def latest_snapshot_for_camera(camera_id: str) -> str | None:
-    cam_dir = os.path.join(settings.snapshots_dir, camera_id)
-    if not os.path.isdir(cam_dir):
+def latest_snapshot_for_bay(bay_id: str) -> str | None:
+    bay_dir = os.path.join(settings.snapshots_dir, bay_id)
+    if not os.path.isdir(bay_dir):
         return None
     files = sorted(
-        [f for f in os.listdir(cam_dir) if f.lower().endswith((".jpg", ".jpeg", ".png"))],
+        [f for f in os.listdir(bay_dir) if f.lower().endswith((".jpg", ".jpeg", ".png"))],
         reverse=True,
     )
     if not files:
         return None
-    return os.path.join(cam_dir, files[0])
+    return os.path.join(bay_dir, files[0])

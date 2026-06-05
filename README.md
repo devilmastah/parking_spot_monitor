@@ -1,157 +1,122 @@
 # Parking Spot Monitor — Home Assistant Add-on
 
-Monitor fixed parking spots using camera snapshots and license plate recognition. Designed for fleets where each car has a **number** and **license plate**, and must park in assigned spots for accurate power tracking.
+Monitor fixed parking bays using **one ESP32-CAM per bay** (ESPHome) and **ArUco markers** on car roofs. Bays are photographed **one at a time** to keep WiFi load manageable.
 
-## Features
-
-- **Automatic snapshots** every 5 minutes from your Home Assistant cameras
-- **Web UI** (via HA Ingress) to:
-  - View live camera snapshots
-  - Draw polygon parking zones on each camera
-  - Configure your fleet (car number ↔ license plate)
-  - See live spot status with confidence scores
-- **MQTT entities** auto-discovered in Home Assistant per parking spot:
-  - `binary_sensor` — car present (occupied)
-  - `sensor` — car number
-  - `sensor` — plate text read
-  - `sensor` — confidence (%)
-
-## How It Works
+## How it works
 
 ```mermaid
 flowchart LR
-  HA[HA Cameras] -->|snapshot every 5 min| APP[Parking Spot Monitor]
-  APP -->|crop zones| OCR[Tesseract OCR]
-  OCR -->|fuzzy match| FLEET[Fleet DB]
-  FLEET --> MQTT[MQTT Broker]
-  MQTT --> ENT[HA Entities]
-  UI[Web UI] -->|zones + fleet| APP
+  A[Scheduler] -->|bay 1 snapshot| CAM1[ESP32-CAM bay 1]
+  A -->|wait| A
+  A -->|bay 2 snapshot| CAM2[ESP32-CAM bay 2]
+  CAM1 --> ARU[ArUco detect]
+  CAM2 --> ARU
+  ARU --> FLEET[Match marker ID → car #]
+  FLEET --> MQTT[MQTT entities in HA]
 ```
 
-1. Snapshots are fetched from configured camera entities
-2. Each defined zone is cropped from the image
-3. OCR reads license plate text; fuzzy matching links it to your fleet
-4. Per-spot state is stored and published via MQTT
+1. Each parking bay has its own ESP32-CAM (ESPHome → `camera.*` entity in HA)
+2. The add-on triggers snapshots **sequentially** (configurable delay between bays)
+3. OpenCV detects the ArUco marker on the car roof
+4. Marker ID is matched to your fleet → car number
+5. Results published via MQTT to Home Assistant
+
+## Why this approach
+
+- **Dedicated camera per bay** → close-up, high resolution on the marker
+- **ArUco markers** → reliable vs license plate OCR on wide-angle security cams
+- **Sequential capture** → avoids overloading WiFi with multiple ESP32 streams at once
 
 ## Installation
 
-### Home Assistant (recommended)
+1. **Settings → Apps → App store → ⋮ → Repositories**
+2. Add: `https://github.com/devilmastah/parking_spot_monitor`
+3. **Check for updates** → install **Parking Spot Monitor**
 
-1. In Home Assistant go to **Settings → Apps → App store**
-2. Click **⋮** (top right) → **Repositories**
-3. Add this URL and click **Add**:
-   ```
-   https://github.com/devilmastah/parking_spot_monitor
-   ```
-4. Click **Check for updates**
-5. Open **Parking Spot Monitor Repository** → install **Parking Spot Monitor**
-6. Configure cameras in the add-on options (see below)
-7. Start the add-on and open the Web UI
+## Setup guide
 
-### Local development (Docker)
+### 1. Flash ESP32-CAM units (ESPHome)
 
-From the repo root:
+Use the example config: [`esphome/parking_bay_esp32cam.yaml.example`](esphome/parking_bay_esp32cam.yaml.example)
+
+- One ESPHome device per bay (unique `name` / `friendly_name`)
+- Mount camera overhead or angled at the roof marker spot
+- Recommended resolution: `800x600` or higher (with PSRAM)
+
+Generate ArUco markers (must match `aruco_dictionary` in add-on config, default **DICT_4X4_50**):
+
+```bash
+python3 -c "
+import cv2
+from cv2 import aruco
+d = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
+for i in range(1, 11):
+    img = aruco.generateImageMarker(d, i, 200)
+    cv2.imwrite(f'aruco_{i}.png', img)
+"
+```
+
+Print and mount one marker on each car roof (laminated, high contrast).
+
+### 2. Add-on configuration
+
+Example (YAML mode):
+
+```yaml
+ha_url: http://supervisor/core
+snapshot_interval_minutes: 5
+capture_delay_seconds: 3
+aruco_dictionary: DICT_4X4_50
+mqtt_enabled: true
+mqtt_broker: core-mosquitto
+mqtt_port: 1883
+mqtt_username: ""
+mqtt_password: ""
+mqtt_topic_prefix: parking_spot
+bays:
+  - name: Bay 1
+    camera_entity_id: camera.parking_bay_1
+  - name: Bay 2
+    camera_entity_id: camera.parking_bay_2
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `snapshot_interval_minutes` | Full round-robin interval | `5` |
+| `capture_delay_seconds` | Pause between bay snapshots | `3` |
+| `aruco_dictionary` | OpenCV dictionary name | `DICT_4X4_50` |
+| `bays` | List of `{name, camera_entity_id}` | `[]` |
+
+**Capture order** follows `sort_order` in the Web UI (or list order from config).
+
+### 3. Web UI
+
+Open the add-on Web UI:
+
+1. **Settings → Import bays from add-on config**
+2. **Fleet → Add car** — car number + ArUco ID (same ID printed on the marker)
+3. **Bays → Snapshot** on each bay to verify framing
+4. **Analyze all bays** → check **Live Status**
+
+### 4. MQTT entities (per bay)
+
+- `binary_sensor.*_occupied`
+- `sensor.*_car_number`
+- `sensor.*_aruco_id`
+- `sensor.*_confidence`
+
+## Marker tips
+
+- Use **DICT_4X4_50** for up to 50 cars (IDs 0–49)
+- Marker should fill a reasonable portion of the frame (aim for ~5–15% of image width)
+- Good lighting helps; consider ESP32-CAM flash LED for night
+- Empty bay = **no marker detected** → occupied OFF
+
+## Development
 
 ```bash
 docker compose up --build
 ```
-
-Or build the add-on image directly:
-
-```bash
-docker build -t parking-spot-monitor ./parking_spot_monitor
-docker run -p 8099:8099 \
-  -e HA_URL=http://your-ha:8123 \
-  -e HA_TOKEN=your_long_lived_token \
-  -e MQTT_ENABLED=false \
-  -v parking_data:/data \
-  parking-spot-monitor
-```
-
-## Add-on Configuration
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `ha_url` | Home Assistant URL | `http://supervisor/core` |
-| `snapshot_interval_minutes` | How often to capture & analyze | `5` |
-| `mqtt_enabled` | Publish spot entities via MQTT | `true` |
-| `mqtt_broker` | MQTT broker hostname | `core-mosquitto` |
-| `mqtt_port` | MQTT port | `1883` |
-| `mqtt_username` | MQTT username (optional) | |
-| `mqtt_password` | MQTT password (optional) | |
-| `mqtt_topic_prefix` | Topic prefix for entities | `parking_spot` |
-| `cameras` | List of `{entity_id, name}` | `[]` |
-
-### Example camera config
-
-```yaml
-cameras:
-  - entity_id: camera.parking_lot_a
-    name: Parking Lot A
-  - entity_id: camera.parking_lot_b
-    name: Parking Lot B
-```
-
-After saving add-on config, open the Web UI → **Settings** → **Import from Add-on Config**.
-
-## Web UI Setup Guide
-
-### 1. Add cameras
-Configure in add-on options or manually under **Settings**.
-
-### 2. Draw parking zones
-1. Go to **Zones** tab
-2. Select a camera
-3. Click **Draw New Zone**
-4. Click polygon corners on the snapshot (double-click or click first point to finish)
-5. Name the spot (e.g. "Spot 1") and save
-
-### 3. Configure fleet
-Under **Fleet**, add each car:
-- **Car #** — your internal fleet number (used for power tracking)
-- **License Plate** — as printed on the plate (dashes/spaces are normalized)
-
-### 4. Verify
-Click **Analyze Now**, then check **Live Status** for occupied/empty, car number, and confidence.
-
-## MQTT Topics
-
-For zone ID `abc12345`:
-
-| Topic | Payload |
-|-------|---------|
-| `parking_spot/abc12345/occupied` | `ON` / `OFF` |
-| `parking_spot/abc12345/car_number` | `3` or `unknown` |
-| `parking_spot/abc12345/plate` | Raw OCR text |
-| `parking_spot/abc12345/confidence` | `0`–`100` |
-| `parking_spot/abc12345/state` | Full JSON state |
-
-Home Assistant MQTT discovery creates entities automatically on first publish.
-
-## OCR Accuracy Tips
-
-License plate OCR is inherently imperfect. For best results:
-
-- **Angle** — mount cameras to see plates clearly when cars are parked
-- **Lighting** — avoid glare; IR cameras help at night
-- **Zone size** — draw zones tight around the plate area, not the whole car
-- **Plate format** — enter fleet plates in a consistent format
-- **Confidence** — use the confidence sensor in automations (e.g. only alert if > 70%)
-
-The matcher uses fuzzy string matching, so minor OCR errors (O vs 0, B vs 8) can still match.
-
-## Data Storage
-
-All data persists in `/data` inside the container:
-
-- `parking.db` — zones, fleet, spot states
-- `snapshots/` — captured images per camera
-
-## Requirements
-
-- Home Assistant with camera entities
-- MQTT broker (Mosquitto add-on recommended) if using MQTT entities
-- Cameras must be accessible via HA's `camera_proxy` API
 
 ## License
 

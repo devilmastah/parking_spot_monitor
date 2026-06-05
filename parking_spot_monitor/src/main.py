@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 import uvicorn
 
-from src.analyzer import analyze_all_cameras, sync_addon_cameras
+from src.analyzer import analyze_all_bays, sync_addon_bays
 from src.api import router as api_router
 from src.config import settings
 from src.database import db
@@ -29,8 +29,8 @@ scheduler = AsyncIOScheduler()
 
 
 async def _scheduled_analysis():
-    logger.info("Starting scheduled parking analysis")
-    result = await analyze_all_cameras()
+    logger.info("Starting scheduled parking bay analysis")
+    result = await analyze_all_bays()
     logger.info("Analysis complete: %s", result)
 
 
@@ -40,7 +40,7 @@ async def lifespan(app: FastAPI):
     os.makedirs(settings.snapshots_dir, exist_ok=True)
 
     await db.init()
-    await sync_addon_cameras()
+    await sync_addon_bays()
     mqtt_publisher.connect()
 
     scheduler.add_job(

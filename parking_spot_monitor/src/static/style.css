@@ -106,11 +106,51 @@ select, input[type="text"], input[type="number"] {
 
 .hidden { display: none !important; }
 
-.editor-layout {
+.bay-grid {
   display: grid;
-  grid-template-columns: 1fr 280px;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 1rem;
 }
+
+.bay-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.bay-card-header {
+  padding: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.bay-card-header h3 { font-size: 1rem; margin-bottom: 0.25rem; }
+.bay-card-header code { font-size: 0.8rem; color: var(--muted); }
+
+.bay-preview {
+  min-height: 180px;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bay-preview img {
+  display: block;
+  width: 100%;
+  max-height: 240px;
+  object-fit: contain;
+}
+
+.bay-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+}
+
+.error { color: var(--danger); padding: 1rem; }
+
 
 @media (max-width: 900px) {
   .editor-layout { grid-template-columns: 1fr; }
