@@ -154,6 +154,7 @@ async def analyze_one_debug(bay_id: str):
             "votes": debug.votes,
             "best_confidence": debug.best_confidence,
             "attempts": debug.attempts,
+            "used_flip": debug.used_flip,
         },
     }
 

@@ -42,6 +42,7 @@ class ArucoDebugInfo:
     votes: dict[int, int] = field(default_factory=dict)
     best_confidence: dict[int, float] = field(default_factory=dict)
     attempts: int = 0
+    used_flip: bool | None = None
 
 
 def _make_detector_params() -> cv2.aruco.DetectorParameters:
@@ -142,6 +143,55 @@ def _collect_detections(
     return votes, best_confidence, best_corners, attempts
 
 
+def _merge_detection_runs(
+    runs: list[tuple[Counter, dict[int, float], dict[int, np.ndarray], int]],
+) -> tuple[Counter, dict[int, float], dict[int, np.ndarray], int]:
+    """Combine votes from multiple orientations (e.g. normal + horizontally flipped)."""
+    merged_votes: Counter = Counter()
+    merged_confidence: dict[int, float] = {}
+    merged_corners: dict[int, np.ndarray] = {}
+    attempts = 0
+
+    for votes, best_confidence, best_corners, run_attempts in runs:
+        merged_votes.update(votes)
+        attempts += run_attempts
+        for marker_id, conf in best_confidence.items():
+            if conf > merged_confidence.get(marker_id, 0.0):
+                merged_confidence[marker_id] = conf
+                if marker_id in best_corners:
+                    merged_corners[marker_id] = best_corners[marker_id]
+
+    return merged_votes, merged_confidence, merged_corners, attempts
+
+
+def _collect_detections_with_flip(
+    image: np.ndarray,
+    dictionary_name: str,
+) -> tuple[Counter, dict[int, float], dict[int, np.ndarray], int, bool | None]:
+    """Detect on original and horizontally flipped image (ESP32-CAM mirror fix)."""
+    normal = _collect_detections(image, dictionary_name)
+    flipped_image = cv2.flip(image, 1)
+    flipped = _collect_detections(flipped_image, dictionary_name)
+    votes, best_confidence, best_corners, attempts = _merge_detection_runs(
+        [normal, flipped]
+    )
+
+    used_flip: bool | None = None
+    if votes:
+        winner = max(
+            votes.keys(),
+            key=lambda marker_id: (votes[marker_id], best_confidence.get(marker_id, 0.0)),
+        )
+        normal_votes = normal[0].get(winner, 0)
+        flipped_votes = flipped[0].get(winner, 0)
+        if flipped_votes > normal_votes:
+            used_flip = True
+        elif normal_votes > flipped_votes:
+            used_flip = False
+
+    return votes, best_confidence, best_corners, attempts, used_flip
+
+
 def _pick_winner(
     votes: Counter,
     best_confidence: dict[int, float],
@@ -194,22 +244,24 @@ def analyze_image_with_debug(
     if image is None or image.size == 0:
         return ArucoResult(False, None, None, 0.0), ArucoDebugInfo()
 
-    votes, best_confidence, _best_corners, attempts = _collect_detections(
-        image, dictionary_name
+    votes, best_confidence, _best_corners, attempts, used_flip = (
+        _collect_detections_with_flip(image, dictionary_name)
     )
     debug = ArucoDebugInfo(
         votes=dict(votes),
         best_confidence=best_confidence,
         attempts=attempts,
+        used_flip=used_flip,
     )
 
     winner_id, confidence = _pick_winner(votes, best_confidence)
     if winner_id is None:
         logger.info(
-            "No ArUco marker accepted (dictionary=%s votes=%s attempts=%s)",
+            "No ArUco marker accepted (dictionary=%s votes=%s attempts=%s flip=%s)",
             dictionary_name,
             dict(votes),
             attempts,
+            used_flip,
         )
         return ArucoResult(False, None, None, 0.0), debug
 
@@ -226,5 +278,7 @@ def analyze_image_with_debug(
         occupied=True,
         car_number=car_number,
         aruco_id_detected=winner_id,
-        confidence=confidence if car_number is not None else round(confidence * 0.5, 3),
+        confidence=float(
+            confidence if car_number is not None else round(confidence * 0.5, 3)
+        ),
     ), debug
