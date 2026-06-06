@@ -46,6 +46,11 @@ class HAClient:
         logger.info("Ran prepare_capture via %s", script_entity)
 
     async def fetch_snapshot(self, entity_id: str, dest_path: str) -> str:
+        if not self.token:
+            raise RuntimeError(
+                "Home Assistant API token missing. "
+                "Ensure homeassistant_api: true in add-on config and restart the add-on."
+            )
         if settings.flash_before_capture:
             try:
                 await self.run_prepare_capture(entity_id)

@@ -52,9 +52,10 @@ async def lifespan(app: FastAPI):
     )
     scheduler.start()
     logger.info(
-        "Parking Spot Monitor started (interval=%s min, mqtt=%s)",
+        "Parking Spot Monitor started (interval=%s min, mqtt=%s, ha_token=%s)",
         settings.snapshot_interval_minutes,
         settings.mqtt_enabled,
+        "set" if settings.ha_token else "MISSING",
     )
 
     asyncio.create_task(_scheduled_analysis())

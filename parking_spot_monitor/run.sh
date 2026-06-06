@@ -22,10 +22,16 @@ export MQTT_USERNAME="$(bashio::config 'mqtt_username' '')"
 export MQTT_PASSWORD="$(bashio::config 'mqtt_password' '')"
 export MQTT_TOPIC_PREFIX="$(bashio::config 'mqtt_topic_prefix' 'parking_spot')"
 
-if bashio::config.has_value "SUPERVISOR_TOKEN"; then
+# SUPERVISOR_TOKEN is injected by the Supervisor when homeassistant_api: true in config.yaml.
+# Do NOT use bashio::config for this — it is an env var, not an add-on option.
+if [ -n "${SUPERVISOR_TOKEN:-}" ]; then
   export HA_TOKEN="${SUPERVISOR_TOKEN}"
+elif [ -n "${HASSIO_TOKEN:-}" ]; then
+  export HA_TOKEN="${HASSIO_TOKEN}"
 elif bashio::config.has_value "ha_token"; then
   export HA_TOKEN="$(bashio::config 'ha_token')"
+else
+  echo "WARNING: No HA API token (SUPERVISOR_TOKEN). Camera snapshots will fail with 401." >&2
 fi
 
 mkdir -p "${DATA_DIR}/snapshots"
