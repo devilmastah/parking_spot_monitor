@@ -103,8 +103,8 @@ function renderDashboard() {
           <div class="confidence-bar"><span style="width:${pct}%"></span></div>
           <div class="dash-meta">${formatTime(bay.analyzed_at)}</div>
           <div class="dash-actions">
+            <button class="btn small dash-snapshot" data-id="${bay.bay_id}">Take snapshot</button>
             <button class="btn small primary dash-analyze" data-id="${bay.bay_id}">Analyze</button>
-            <button class="btn small dash-snapshot" data-id="${bay.bay_id}">Snapshot only</button>
           </div>
         </div>
       </article>`;
@@ -201,6 +201,7 @@ async function loadBayConfig() {
         <span class="hint">Expected car: ${b.expected_car_number ?? "not set"}</span>
       </div>
       <div class="config-actions">
+        <button class="btn small bay-snapshot" data-id="${b.id}">Take snapshot</button>
         <button class="btn small edit-bay" data-id="${b.id}">Edit</button>
         <button class="btn small danger delete-bay" data-id="${b.id}">Delete</button>
       </div>
@@ -210,6 +211,9 @@ async function loadBayConfig() {
 
   list.querySelectorAll(".edit-bay").forEach((btn) => btn.addEventListener("click", () => editBay(btn.dataset.id)));
   list.querySelectorAll(".delete-bay").forEach((btn) => btn.addEventListener("click", () => deleteBay(btn.dataset.id)));
+  list.querySelectorAll(".bay-snapshot").forEach((btn) =>
+    btn.addEventListener("click", () => takeSnapshot(btn.dataset.id, btn))
+  );
 }
 
 document.getElementById("add-bay").addEventListener("click", () => {

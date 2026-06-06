@@ -6,7 +6,12 @@ import uuid
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
-from src.analyzer import analyze_all_bays, analyze_single_bay, latest_snapshot_for_bay
+from src.analyzer import (
+    analyze_all_bays,
+    analyze_single_bay,
+    capture_bay_snapshot,
+    latest_snapshot_for_bay,
+)
 from src.config import settings
 from src.database import db
 from src.ha_client import ha_client
@@ -22,10 +27,21 @@ def _snapshot_url(path: str | None) -> str | None:
 
 
 def _enrich_bay_row(row: dict) -> dict:
-    path = row.get("snapshot_path") or latest_snapshot_for_bay(row["bay_id"])
+    latest = latest_snapshot_for_bay(row["bay_id"])
+    analyzed = row.get("snapshot_path")
+    path = latest or analyzed
+    row["snapshot_path_analyzed"] = analyzed
     row["snapshot_path"] = path
     row["snapshot_url"] = _snapshot_url(path)
     return row
+
+
+def _snapshot_response(path: str, bay_id: str | None = None) -> dict:
+    rel = os.path.relpath(path, settings.data_dir).replace("\\", "/")
+    result = {"path": rel, "url": f"data/{rel}"}
+    if bay_id:
+        result["bay_id"] = bay_id
+    return result
 
 
 class BayIn(BaseModel):
@@ -172,6 +188,18 @@ async def analyze_one_debug(bay_id: str):
     }
 
 
+@router.post("/snapshots/{bay_id}/capture")
+async def capture_snapshot(bay_id: str):
+    """Trigger a new still capture from the bay camera."""
+    try:
+        result = await capture_bay_snapshot(bay_id)
+    except ValueError:
+        raise HTTPException(404, "Bay not found") from None
+    except Exception as exc:
+        raise HTTPException(500, str(exc)) from exc
+    return _snapshot_response(result["snapshot_path"], bay_id)
+
+
 @router.get("/snapshots/{bay_id}/latest")
 async def latest_snapshot(bay_id: str, fetch: bool = Query(default=True)):
     """Return latest snapshot. Set fetch=false to only use cached file on disk."""
@@ -181,15 +209,17 @@ async def latest_snapshot(bay_id: str, fetch: bool = Query(default=True)):
         raise HTTPException(404, "Bay not found")
 
     if fetch:
-        path = ha_client.snapshot_filename(bay_id)
-        await ha_client.fetch_snapshot(bay["camera_entity_id"], path)
+        try:
+            result = await capture_bay_snapshot(bay_id)
+            path = result["snapshot_path"]
+        except Exception as exc:
+            raise HTTPException(500, str(exc)) from exc
     else:
         path = latest_snapshot_for_bay(bay_id)
         if not path:
             raise HTTPException(404, "No cached snapshot")
 
-    rel = os.path.relpath(path, settings.data_dir).replace("\\", "/")
-    return {"path": rel, "url": f"data/{rel}"}
+    return _snapshot_response(path, bay_id)
 
 
 @router.post("/snapshots/{bay_id}/upload")

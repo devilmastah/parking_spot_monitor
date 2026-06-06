@@ -143,3 +143,20 @@ def latest_snapshot_for_bay(bay_id: str) -> str | None:
     if not files:
         return None
     return os.path.join(bay_dir, files[0])
+
+
+async def capture_bay_snapshot(bay_id: str) -> dict:
+    """Fetch a fresh still from the bay camera and save it to disk."""
+    bays = {b["id"]: b for b in await db.list_bays()}
+    bay = bays.get(bay_id)
+    if not bay:
+        raise ValueError(f"Unknown bay: {bay_id}")
+
+    snapshot_path = ha_client.snapshot_filename(bay_id)
+    await ha_client.fetch_snapshot(bay["camera_entity_id"], snapshot_path)
+    return {
+        "bay_id": bay_id,
+        "bay_name": bay["name"],
+        "camera_entity_id": bay["camera_entity_id"],
+        "snapshot_path": snapshot_path,
+    }
