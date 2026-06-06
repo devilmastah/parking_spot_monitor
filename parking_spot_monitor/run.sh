@@ -30,7 +30,4 @@ fi
 
 mkdir -p "${DATA_DIR}/snapshots"
 
-BAYS_JSON="$(bashio::config 'bays' '[]')"
-echo "${BAYS_JSON}" > "${DATA_DIR}/addon_bays.json"
-
 python3 -m src.main

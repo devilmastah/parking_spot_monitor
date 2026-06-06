@@ -22,12 +22,15 @@ def _slug_id(text: str) -> str:
 async def sync_addon_bays() -> None:
     """Import bays from add-on options into the database."""
     for bay in settings.load_addon_bays():
-        entity_id = bay.get("camera_entity_id", "")
-        name = bay.get("name") or entity_id
+        if not isinstance(bay, dict):
+            logger.warning("Skipping invalid bay entry: %r", bay)
+            continue
+        entity_id = str(bay.get("camera_entity_id", "")).strip()
+        name = str(bay.get("name") or entity_id).strip()
         if not entity_id:
             continue
         bay_id = _slug_id(entity_id)
-        sort_order = bay.get("sort_order", 0)
+        sort_order = int(bay.get("sort_order") or 0)
         await db.upsert_bay(bay_id, name, entity_id, sort_order)
 
 

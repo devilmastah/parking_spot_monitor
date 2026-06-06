@@ -1,8 +1,11 @@
 """Application configuration from environment variables."""
 
 import json
+import logging
 import os
 from dataclasses import dataclass, field
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -49,11 +52,48 @@ class Settings:
     def addon_bays_path(self) -> str:
         return os.path.join(self.data_dir, "addon_bays.json")
 
-    def load_addon_bays(self) -> list[dict]:
-        if not os.path.exists(self.addon_bays_path):
+    @property
+    def options_json_path(self) -> str:
+        return os.path.join(self.data_dir, "options.json")
+
+    def _normalize_bays(self, raw) -> list[dict]:
+        """Accept list, single dict, or empty — HA add-on options vary by UI mode."""
+        if raw is None:
             return []
-        with open(self.addon_bays_path, encoding="utf-8") as f:
-            return json.load(f)
+        if isinstance(raw, dict):
+            if "camera_entity_id" in raw or "name" in raw:
+                return [raw]
+            logger.warning("Ignoring unrecognized bays dict: %s", list(raw.keys()))
+            return []
+        if isinstance(raw, list):
+            bays = []
+            for item in raw:
+                if isinstance(item, dict):
+                    bays.append(item)
+                else:
+                    logger.warning("Skipping invalid bay entry (expected object): %r", item)
+            return bays
+        logger.warning("Ignoring bays config with unexpected type: %s", type(raw).__name__)
+        return []
+
+    def load_addon_bays(self) -> list[dict]:
+        raw = None
+        if os.path.exists(self.options_json_path):
+            try:
+                with open(self.options_json_path, encoding="utf-8") as f:
+                    opts = json.load(f)
+                raw = opts.get("bays")
+            except (json.JSONDecodeError, OSError) as exc:
+                logger.warning("Could not read options.json: %s", exc)
+
+        if raw is None and os.path.exists(self.addon_bays_path):
+            try:
+                with open(self.addon_bays_path, encoding="utf-8") as f:
+                    raw = json.load(f)
+            except (json.JSONDecodeError, OSError) as exc:
+                logger.warning("Could not read addon_bays.json: %s", exc)
+
+        return self._normalize_bays(raw)
 
 
 settings = Settings()
