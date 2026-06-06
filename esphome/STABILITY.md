@@ -68,7 +68,7 @@ Wrong PSRAM mode → random crashes.
 - Lower resolution default (`640x480`)
 - Camera clock **10 MHz** (was 20 MHz)
 - **`idle_framerate: 0 fps`** — no constant background frames
-- **`CONFIG_LWIP_MAX_SOCKETS=16`** — fewer API drops under load
+- **`CONFIG_LWIP_MAX_SOCKETS=16`** via `sdkconfig_options` (not `build_flags`) — fewer API drops under load
 - Removed `captive_portal` (saves RAM; re-add only for initial WiFi setup)
 - Removed periodic `text_sensor` (unnecessary polling)
 - Added **Restart** button in HA for remote recovery
