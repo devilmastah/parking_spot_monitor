@@ -314,14 +314,30 @@ th { background: var(--surface2); color: var(--muted); font-weight: 500; }
   max-width: 90vw;
 }
 
-.modal-content label {
+.modal-content label,
+.modal-content .modal-field {
   display: block;
-  margin-bottom: 0.75rem;
+  margin-bottom: 1rem;
 }
 
-.modal-content input {
+.modal-content .field-label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.modal-content .field-hint {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-bottom: 0.35rem;
+  line-height: 1.35;
+}
+
+.modal-content input,
+.modal-content select {
   width: 100%;
-  margin-top: 0.25rem;
+  margin-top: 0.15rem;
 }
 
 .badge {

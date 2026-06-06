@@ -267,65 +267,81 @@ async function assignExpectedCar(bayId, selectEl) {
   }
 }
 
-document.getElementById("add-bay").addEventListener("click", () => {
-  showModal(
-    "Add parking bay",
-    [
-      { id: "bay-name", label: "Bay name", type: "text", placeholder: "Bay 1" },
-      { id: "bay-entity", label: "Camera entity ID", type: "text", placeholder: "camera.parking_bay_1" },
-      { id: "bay-order", label: "Capture order", type: "number", placeholder: "0" },
-      { id: "bay-expected", label: "Expected car number (optional)", type: "number", placeholder: "1" },
-    ],
-    async () => {
-      const expectedVal = document.getElementById("bay-expected").value;
-      await api("/bays", {
-        method: "POST",
-        body: JSON.stringify({
-          name: document.getElementById("bay-name").value,
-          camera_entity_id: document.getElementById("bay-entity").value,
-          sort_order: parseInt(document.getElementById("bay-order").value || "0", 10),
-          expected_car_number: expectedVal === "" ? null : parseInt(expectedVal, 10),
-        }),
-      });
-      hideModal();
-      loadBayConfig();
-      loadDashboard();
-    }
-  );
-});
+document.getElementById("add-bay").addEventListener("click", () => openBayModal());
 
-function editBay(bayId) {
-  const bay = state.bays.find((b) => b.id === bayId);
-  if (!bay) return;
+function buildFleetOptions(selected) {
+  let html = `<option value="">— Not assigned —</option>`;
+  for (const car of state.fleet) {
+    const sel = selected === car.car_number ? " selected" : "";
+    html += `<option value="${car.car_number}"${sel}>Car ${car.car_number} (ArUco ID ${car.aruco_id})</option>`;
+  }
+  if (!state.fleet.length) {
+    html += `<option value="" disabled>Add cars on the Fleet tab first</option>`;
+  }
+  return html;
+}
+
+async function openBayModal(bay = null) {
+  state.fleet = await api("/fleet");
+  const isEdit = bay != null;
   showModal(
-    "Edit parking bay",
+    isEdit ? "Edit parking bay" : "Add parking bay",
     [
-      { id: "bay-name", label: "Bay name", type: "text", value: bay.name },
-      { id: "bay-entity", label: "Camera entity ID", type: "text", value: bay.camera_entity_id },
-      { id: "bay-order", label: "Capture order", type: "number", value: bay.sort_order },
+      {
+        id: "bay-name",
+        label: "Bay name",
+        type: "text",
+        placeholder: "Bay 1",
+        value: bay?.name ?? "",
+      },
+      {
+        id: "bay-entity",
+        label: "Camera entity ID",
+        type: "text",
+        placeholder: "camera.parking_bay_1",
+        hint: "Home Assistant camera entity for this ESP32-CAM.",
+        value: bay?.camera_entity_id ?? "",
+      },
       {
         id: "bay-expected",
-        label: "Expected car number (optional)",
+        label: "Expected car for this spot",
+        type: "select",
+        hint: "Which fleet car should be parked here? Required for MQTT correct_car.",
+        optionsHtml: buildFleetOptions(bay?.expected_car_number ?? null),
+      },
+      {
+        id: "bay-order",
+        label: "Snapshot order",
         type: "number",
-        value: bay.expected_car_number ?? "",
+        placeholder: "0",
+        hint: "Order when Analyze all runs: 0 = first snapshot, 1 = second, etc.",
+        value: bay?.sort_order ?? 0,
       },
     ],
     async () => {
       const expectedVal = document.getElementById("bay-expected").value;
-      await api(`/bays/${bayId}`, {
-        method: "PUT",
-        body: JSON.stringify({
-          name: document.getElementById("bay-name").value,
-          camera_entity_id: document.getElementById("bay-entity").value,
-          sort_order: parseInt(document.getElementById("bay-order").value || "0", 10),
-          expected_car_number: expectedVal === "" ? null : parseInt(expectedVal, 10),
-        }),
-      });
+      const body = {
+        name: document.getElementById("bay-name").value,
+        camera_entity_id: document.getElementById("bay-entity").value,
+        sort_order: parseInt(document.getElementById("bay-order").value || "0", 10),
+        expected_car_number: expectedVal === "" ? null : parseInt(expectedVal, 10),
+      };
+      if (isEdit) {
+        await api(`/bays/${bay.id}`, { method: "PUT", body: JSON.stringify(body) });
+      } else {
+        await api("/bays", { method: "POST", body: JSON.stringify(body) });
+      }
       hideModal();
       loadBayConfig();
       loadDashboard();
     }
   );
+}
+
+function editBay(bayId) {
+  const bay = state.bays.find((b) => b.id === bayId);
+  if (!bay) return;
+  openBayModal(bay);
 }
 
 async function deleteBay(bayId) {
@@ -420,16 +436,27 @@ document.getElementById("mqtt-publish").addEventListener("click", async () => {
   }
 });
 
+function renderModalField(f) {
+  const hint = f.hint ? `<span class="field-hint">${f.hint}</span>` : "";
+  if (f.type === "select") {
+    return `
+    <label class="modal-field">
+      <span class="field-label">${f.label}</span>
+      ${hint}
+      <select id="${f.id}">${f.optionsHtml || ""}</select>
+    </label>`;
+  }
+  return `
+    <label class="modal-field">
+      <span class="field-label">${f.label}</span>
+      ${hint}
+      <input type="${f.type}" id="${f.id}" placeholder="${f.placeholder || ""}" value="${f.value ?? ""}">
+    </label>`;
+}
+
 function showModal(title, fields, onConfirm) {
   document.getElementById("modal-title").textContent = title;
-  document.getElementById("modal-body").innerHTML = fields
-    .map(
-      (f) => `
-    <label>${f.label}
-      <input type="${f.type}" id="${f.id}" placeholder="${f.placeholder || ""}" value="${f.value ?? ""}">
-    </label>`
-    )
-    .join("");
+  document.getElementById("modal-body").innerHTML = fields.map(renderModalField).join("");
   document.getElementById("modal").classList.remove("hidden");
   const confirm = document.getElementById("modal-confirm");
   const clone = confirm.cloneNode(true);
