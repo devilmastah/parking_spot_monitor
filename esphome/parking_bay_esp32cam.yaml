@@ -1,24 +1,16 @@
-# Parking bay ESP32-CAM — ESPHome device config
+# Parking bay ESP32-CAM — ESPHome device config (snapshot-only, stability tuned)
 #
-# Copy this folder into your ESPHome config directory, then:
-#   1. Copy secrets.yaml.example → secrets.yaml and fill in WiFi/API keys
-#   2. Change substitutions below for each bay (unique device_slug per camera)
-#   3. Flash via ESPHome dashboard
-#   4. Add camera.parking_bay_X to Parking Spot Monitor add-on config
-#
-# Home Assistant exposes:
-#   camera.{device_slug}           — snapshot source for the add-on
-#   script.{device_slug}_prepare_capture — flash + settle (called before snapshot)
-#   button.{device_slug}_test_flash  — manual flash test during install
+# Stability tips: see esphome/STABILITY.md
+# Only change substitutions per bay (device_slug, friendly_name, bay_label).
 
 substitutions:
-  device_slug: parking-bay-1          # unique per bay → esphome.name (lowercase, hyphens)
-  friendly_name: Parking Bay 1        # shown in Home Assistant
-  bay_label: "1"                      # label only (logs / AP SSID)
-  flash_pin: GPIO4                    # AI-Thinker ESP32-CAM flash LED
-  # Camera: SVGA is a good balance for ArUco on roof; use 1280x1024 if PSRAM is stable
-  camera_resolution: 800x600
-  camera_jpeg_quality: "8"
+  device_slug: parking-bay-1
+  friendly_name: Parking Bay 1
+  bay_label: "1"
+  flash_pin: GPIO4
+  # 640x480 is most stable; use 800x600 if PSRAM is confirmed working
+  camera_resolution: 640x480
+  camera_jpeg_quality: "10"
 
 esphome:
   name: ${device_slug}
@@ -28,14 +20,16 @@ esphome:
     board_build.flash_mode: dio
     board_build.f_flash: 40000000L
     board_build.f_cpu: 240000000L
+    # Reduce API disconnects when HA polls camera (socket exhaustion)
+    build_flags:
+      - -DCONFIG_LWIP_MAX_SOCKETS=16
 
 esp32:
   board: esp32dev
   framework:
     type: arduino
 
-# AI-Thinker ESP32-CAM uses classic ESP32 + quad PSRAM (not octal — octal is ESP32-S3 only).
-# If your board has NO PSRAM, comment out the entire psram: block and use camera_resolution: 640x480
+# AI-Thinker ESP32-CAM: quad PSRAM. Comment out entire block if your module has NO PSRAM.
 psram:
   mode: quad
 
@@ -45,6 +39,7 @@ logger:
 api:
   encryption:
     key: !secret api_encryption_key
+  reboot_timeout: 15min
   services:
     - service: prepare_capture
       then:
@@ -58,14 +53,13 @@ wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
   power_save_mode: none
-  fast_connect: true
+  fast_connect: false
+  reboot_timeout: 15min
   ap:
     ssid: "${device_slug}-setup"
     password: !secret ap_password
 
-captive_portal:
-
-# Scripts/buttons/camera are auto-exposed in HA via the native API (no homeassistant: block needed).
+# ── Flash LED (optional — only used if add-on flash_before_capture: true) ─────
 output:
   - platform: ledc
     pin: ${flash_pin}
@@ -81,13 +75,14 @@ light:
     restore_mode: ALWAYS_OFF
     default_transition_length: 0s
 
-# ── Camera (on-demand snapshots via Home Assistant camera_proxy) ─────────────
+# ── Camera: on-demand stills only (Parking Spot Monitor pulls via camera_proxy)
 esp32_camera:
   name: ${friendly_name}
   id: bay_camera
   external_clock:
     pin: GPIO0
-    frequency: 20MHz
+    # 10 MHz is more reliable than 20 MHz on many AI-Thinker boards (less EMI)
+    frequency: 10MHz
   i2c_pins:
     sda: GPIO26
     scl: GPIO27
@@ -100,20 +95,14 @@ esp32_camera:
   jpeg_quality: ${camera_jpeg_quality}
   vertical_flip: false
   horizontal_mirror: false
-  # Low idle rate — Parking Spot Monitor pulls stills one bay at a time
-  max_framerate: 0.5 fps
-  idle_framerate: 0.1 fps
+  # Stop continuous idle captures — camera wakes only when HA requests a frame
+  max_framerate: 0.2 fps
+  idle_framerate: 0 fps
 
-# ── Scripts ──────────────────────────────────────────────────────────────────
 script:
-  # Called by Parking Spot Monitor (or manually) before taking a snapshot.
-  # Turns on the flash briefly so ArUco markers read clearly at night.
   - id: prepare_capture
     mode: single
     then:
-      - logger.log:
-          level: INFO
-          format: "Bay ${bay_label}: prepare_capture started"
       - light.turn_on:
           id: flash_light
           brightness: 100%
@@ -121,11 +110,7 @@ script:
       - light.turn_off:
           id: flash_light
       - delay: 150ms
-      - logger.log:
-          level: INFO
-          format: "Bay ${bay_label}: prepare_capture done"
 
-  # Quick double-flash to confirm GPIO4 wiring during install
   - id: test_flash
     mode: single
     then:
@@ -140,24 +125,11 @@ script:
                 id: flash_light
             - delay: 200ms
 
-# ── Install / debug buttons in HA ────────────────────────────────────────────
 button:
   - platform: template
     name: "${friendly_name} Test Flash"
-    id: btn_test_flash
     on_press:
       - script.execute: test_flash
 
-  - platform: template
-    name: "${friendly_name} Prepare Capture"
-    id: btn_prepare_capture
-    on_press:
-      - script.execute: prepare_capture
-
-# Optional status text in HA (useful when tuning camera aim)
-text_sensor:
-  - platform: template
-    name: "${friendly_name} Info"
-    id: bay_info
-    update_interval: 60s
-    lambda: 'return std::string("ArUco parking bay · ESP32-CAM");'
+  - platform: restart
+    name: "${friendly_name} Restart"
