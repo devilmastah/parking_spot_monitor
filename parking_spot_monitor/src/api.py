@@ -146,7 +146,7 @@ async def upload_snapshot(bay_id: str, file: UploadFile = File(...)):
     with open(dest, "wb") as f:
         f.write(content)
     rel = os.path.relpath(dest, settings.data_dir).replace("\\", "/")
-    return {"path": dest, "url": f"/data/{rel}"}
+    return {"path": dest, "url": f"data/{rel}"}
 
 
 @router.post("/import-addon-bays")
