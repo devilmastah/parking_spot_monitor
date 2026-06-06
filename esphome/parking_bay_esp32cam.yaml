@@ -65,10 +65,7 @@ wifi:
 
 captive_portal:
 
-# Required so scripts appear as HA services (script.parking_bay_1_prepare_capture)
-homeassistant:
-
-# ── Flash LED (AI-Thinker ESP32-CAM = GPIO4) ─────────────────────────────────
+# Scripts/buttons/camera are auto-exposed in HA via the native API (no homeassistant: block needed).
 output:
   - platform: ledc
     pin: ${flash_pin}

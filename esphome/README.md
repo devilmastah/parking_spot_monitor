@@ -19,10 +19,12 @@ One **ESP32-CAM (AI-Thinker)** per parking bay, running this config.
      bay_label: "1"
    ```
 
-5. Flash the device. In HA you should get:
-   - `camera.parking_bay_1` — used by Parking Spot Monitor
-   - `script.parking_bay_1_prepare_capture` — flash before snapshot
-   - `button.parking_bay_1_test_flash` — wiring check during install
+5. Flash the device. In HA (via **ESPHome integration** + `api:`) you should get:
+   - `camera.parking_bay_1`
+   - `script.parking_bay_1_prepare_capture`
+   - `button.parking_bay_1_test_flash`
+
+   Do **not** add an empty `homeassistant:` block — that component is not valid YAML in current ESPHome.
 
 6. Repeat for bay 2, 3, … with a **new copy** of the YAML (new `device_slug` each time).
 
