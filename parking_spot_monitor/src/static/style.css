@@ -453,3 +453,39 @@ th { background: var(--surface2); color: var(--muted); font-weight: 500; }
 .config-row:last-child { border-bottom: none; }
 
 .config-actions { display: flex; gap: 0.5rem; flex-shrink: 0; }
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.data-table th,
+.data-table td {
+  padding: 0.75rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.data-table th {
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.data-table tr:last-child td { border-bottom: none; }
+
+.expected-car-select {
+  min-width: 12rem;
+  width: 100%;
+  max-width: 18rem;
+}
+
+.hint.warn {
+  color: var(--warning);
+  margin: 0.5rem 0 0;
+}

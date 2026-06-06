@@ -181,6 +181,14 @@ class Database:
             )
             await db.commit()
 
+    async def update_bay_correct_car(self, bay_id: str, correct_car: str) -> None:
+        async with self.connect() as db:
+            await db.execute(
+                "UPDATE bay_states SET correct_car = ? WHERE bay_id = ?",
+                (correct_car, bay_id),
+            )
+            await db.commit()
+
     async def list_bay_states(self) -> list[dict]:
         async with self.connect() as db:
             cur = await db.execute(

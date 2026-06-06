@@ -22,7 +22,7 @@ document.querySelectorAll(".tab").forEach((tab) => {
       startAutoRefresh();
     } else {
       stopAutoRefresh();
-      if (tab.dataset.tab === "bays") loadBayConfig();
+    if (tab.dataset.tab === "bays") loadBayConfig();
       if (tab.dataset.tab === "settings") loadSettings();
     }
   });
@@ -77,9 +77,13 @@ function renderDashboard() {
             : "Empty";
       const correctCar = bay.correct_car || "uncertain";
       const correctLabel =
-        correctCar === "yes" ? "Correct car" : correctCar === "no" ? "Wrong car" : "Car check N/A";
+        correctCar === "yes" ? "Correct car" : correctCar === "no" ? "Wrong car" : "Assign expected car";
       const correctClass =
         correctCar === "yes" ? "correct-yes" : correctCar === "no" ? "correct-no" : "correct-unknown";
+      const expectedHint =
+        bay.expected_car_number == null
+          ? `<p class="hint warn">No expected car — assign in <strong>Configure bays</strong></p>`
+          : "";
       const img = bay.snapshot_url
         ? `<img src="${addonUrl(bay.snapshot_url)}?t=${Date.now()}" alt="${bay.bay_name}">`
         : `<span class="no-image">No snapshot yet</span>`;
@@ -99,6 +103,7 @@ function renderDashboard() {
             <div><span class="label">ArUco ID</span><strong>${bay.aruco_id_detected ?? "—"}</strong></div>
             <div><span class="label">Confidence</span><strong>${hasResult ? pct + "%" : "—"}</strong></div>
           </div>
+          ${expectedHint}
           ${bay.expected_car_number != null && hasResult ? `<span class="badge ${correctClass}">${correctLabel}</span>` : ""}
           <div class="confidence-bar"><span style="width:${pct}%"></span></div>
           <div class="dash-meta">${formatTime(bay.analyzed_at)}</div>
@@ -197,34 +202,69 @@ document.getElementById("auto-refresh").addEventListener("change", () => {
 
 async function loadBayConfig() {
   state.bays = await api("/bays");
-  const list = document.getElementById("bay-config-list");
+  state.fleet = await api("/fleet");
+  const tbody = document.getElementById("bay-config-list");
   if (!state.bays.length) {
-    list.innerHTML = `<p class="hint">No bays yet.</p>`;
+    tbody.innerHTML = `<tr><td colspan="4" class="hint">No bays yet. Import from Settings or click Add bay.</td></tr>`;
     return;
   }
-  list.innerHTML = state.bays
+
+  const fleetOptions = (selected) => {
+    let html = `<option value="">Not assigned</option>`;
+    for (const car of state.fleet) {
+      const sel = selected === car.car_number ? " selected" : "";
+      html += `<option value="${car.car_number}"${sel}>Car ${car.car_number} (ArUco ${car.aruco_id})</option>`;
+    }
+    return html;
+  };
+
+  tbody.innerHTML = state.bays
     .map(
       (b) => `
-    <div class="config-row">
-      <div>
-        <strong>${b.name}</strong><br>
-        <code>${b.camera_entity_id}</code><br>
-        <span class="hint">Expected car: ${b.expected_car_number ?? "not set"}</span>
-      </div>
-      <div class="config-actions">
-        <button class="btn small bay-snapshot" data-id="${b.id}">Take snapshot</button>
+    <tr>
+      <td><strong>${b.name}</strong></td>
+      <td><code>${b.camera_entity_id}</code></td>
+      <td>
+        <select class="expected-car-select" data-id="${b.id}" aria-label="Expected car for ${b.name}">
+          ${fleetOptions(b.expected_car_number)}
+        </select>
+      </td>
+      <td class="config-actions">
+        <button class="btn small bay-snapshot" data-id="${b.id}">Snapshot</button>
         <button class="btn small edit-bay" data-id="${b.id}">Edit</button>
         <button class="btn small danger delete-bay" data-id="${b.id}">Delete</button>
-      </div>
-    </div>`
+      </td>
+    </tr>`
     )
     .join("");
 
-  list.querySelectorAll(".edit-bay").forEach((btn) => btn.addEventListener("click", () => editBay(btn.dataset.id)));
-  list.querySelectorAll(".delete-bay").forEach((btn) => btn.addEventListener("click", () => deleteBay(btn.dataset.id)));
-  list.querySelectorAll(".bay-snapshot").forEach((btn) =>
+  tbody.querySelectorAll(".expected-car-select").forEach((sel) => {
+    sel.addEventListener("change", () => assignExpectedCar(sel.dataset.id, sel));
+  });
+  tbody.querySelectorAll(".edit-bay").forEach((btn) => btn.addEventListener("click", () => editBay(btn.dataset.id)));
+  tbody.querySelectorAll(".delete-bay").forEach((btn) => btn.addEventListener("click", () => deleteBay(btn.dataset.id)));
+  tbody.querySelectorAll(".bay-snapshot").forEach((btn) =>
     btn.addEventListener("click", () => takeSnapshot(btn.dataset.id, btn))
   );
+}
+
+async function assignExpectedCar(bayId, selectEl) {
+  const value = selectEl.value;
+  const expected_car_number = value === "" ? null : parseInt(value, 10);
+  selectEl.disabled = true;
+  try {
+    await api(`/bays/${bayId}/expected-car`, {
+      method: "PATCH",
+      body: JSON.stringify({ expected_car_number }),
+    });
+    await loadBayConfig();
+    if (document.getElementById("tab-dashboard").classList.contains("active")) {
+      await loadDashboard();
+    }
+  } catch (err) {
+    alert("Could not save expected car: " + err.message);
+    await loadBayConfig();
+  }
 }
 
 document.getElementById("add-bay").addEventListener("click", () => {

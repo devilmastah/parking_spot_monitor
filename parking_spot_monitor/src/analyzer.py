@@ -145,6 +145,33 @@ def latest_snapshot_for_bay(bay_id: str) -> str | None:
     return os.path.join(bay_dir, files[0])
 
 
+async def refresh_bay_correct_car(bay_id: str) -> dict | None:
+    """Recompute correct_car after expected-car assignment changes."""
+    rows = await db.list_dashboard()
+    row = next((r for r in rows if r["bay_id"] == bay_id), None)
+    if not row:
+        return None
+
+    fleet = await db.list_fleet()
+    has_result = row.get("analyzed_at") is not None
+    correct_car = compute_correct_car(
+        occupied=bool(row.get("occupied")) if has_result else False,
+        car_number_detected=row.get("car_number") if has_result else None,
+        aruco_id_detected=row.get("aruco_id_detected") if has_result else None,
+        expected_car_number=row.get("expected_car_number"),
+        fleet=fleet,
+    )
+
+    if has_result:
+        await db.update_bay_correct_car(bay_id, correct_car)
+    row["correct_car"] = correct_car
+
+    from src.mqtt_publisher import publish_dashboard_row_mqtt
+
+    publish_dashboard_row_mqtt(row, has_result)
+    return row
+
+
 async def capture_bay_snapshot(bay_id: str) -> dict:
     """Fetch a fresh still from the bay camera and save it to disk."""
     bays = {b["id"]: b for b in await db.list_bays()}

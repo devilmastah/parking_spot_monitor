@@ -38,8 +38,18 @@
         <h2>Parking bays</h2>
         <button id="add-bay" class="btn primary">Add bay</button>
       </div>
-      <p class="hint">Each bay is one ESP32-CAM entity in Home Assistant.</p>
-      <div id="bay-config-list" class="config-list"></div>
+      <p class="hint">Each bay is one ESP32-CAM. Use <strong>Expected car</strong> to assign which fleet car should be in that spot (drives MQTT <code>correct_car</code>).</p>
+      <table id="bay-table" class="data-table">
+        <thead>
+          <tr>
+            <th>Bay</th>
+            <th>Camera</th>
+            <th>Expected car</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="bay-config-list"></tbody>
+      </table>
     </section>
 
     <section id="tab-fleet" class="panel">
@@ -47,7 +57,8 @@
         <h2>Fleet · ArUco markers</h2>
         <button id="add-car" class="btn primary">Add car</button>
       </div>
-      <table id="fleet-table">
+      <p class="hint">Register each car and its ArUco marker ID, then assign cars to bays under <strong>Configure bays</strong>.</p>
+      <table id="fleet-table" class="data-table">
         <thead>
           <tr><th>Car #</th><th>ArUco ID</th><th>Notes</th><th></th></tr>
         </thead>

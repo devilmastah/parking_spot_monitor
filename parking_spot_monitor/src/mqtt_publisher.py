@@ -177,6 +177,21 @@ class MQTTPublisher:
         )
 
 
+def publish_dashboard_row_mqtt(row: dict, has_result: bool) -> None:
+    if not mqtt_publisher.client:
+        return
+    mqtt_publisher.publish_bay_state(
+        bay_id=row["bay_id"],
+        bay_name=row["bay_name"],
+        occupied=bool(row.get("occupied")) if has_result else False,
+        car_number=row.get("car_number") if has_result else None,
+        aruco_id_detected=row.get("aruco_id_detected") if has_result else None,
+        confidence=float(row.get("confidence") or 0.0) if has_result else 0.0,
+        correct_car=row.get("correct_car") or "uncertain",
+        expected_car_number=row.get("expected_car_number"),
+    )
+
+
 async def publish_all_bays_mqtt() -> dict:
     """Publish HA MQTT discovery and last-known state for every configured bay."""
     from src.database import db
@@ -194,16 +209,7 @@ async def publish_all_bays_mqtt() -> dict:
 
     for row in rows:
         has_result = row.get("analyzed_at") is not None
-        mqtt_publisher.publish_bay_state(
-            bay_id=row["bay_id"],
-            bay_name=row["bay_name"],
-            occupied=bool(row.get("occupied")) if has_result else False,
-            car_number=row.get("car_number") if has_result else None,
-            aruco_id_detected=row.get("aruco_id_detected") if has_result else None,
-            confidence=float(row.get("confidence") or 0.0) if has_result else 0.0,
-            correct_car=row.get("correct_car") or "uncertain",
-            expected_car_number=row.get("expected_car_number"),
-        )
+        publish_dashboard_row_mqtt(row, has_result)
 
     logger.info("MQTT: published discovery + state for %s bay(s)", len(rows))
     return {"published": len(rows), "bays": [r["bay_id"] for r in rows]}

@@ -11,6 +11,7 @@ from src.analyzer import (
     analyze_single_bay,
     capture_bay_snapshot,
     latest_snapshot_for_bay,
+    refresh_bay_correct_car,
 )
 from src.config import settings
 from src.database import db
@@ -57,6 +58,21 @@ class FleetIn(BaseModel):
     notes: str = ""
 
 
+class ExpectedCarIn(BaseModel):
+    expected_car_number: int | None = None
+
+
+async def _get_bay_or_404(bay_id: str) -> dict:
+    bay = next((b for b in await db.list_bays() if b["id"] == bay_id), None)
+    if not bay:
+        raise HTTPException(404, "Bay not found")
+    return bay
+
+
+async def _after_bay_saved(bay_id: str) -> None:
+    await refresh_bay_correct_car(bay_id)
+
+
 @router.get("/status")
 async def status():
     return {
@@ -80,24 +96,46 @@ async def list_bays():
 @router.post("/bays")
 async def create_bay(body: BayIn):
     bay_id = body.camera_entity_id.replace(".", "_").replace(" ", "_").lower()
-    return await db.upsert_bay(
+    result = await db.upsert_bay(
         bay_id,
         body.name,
         body.camera_entity_id,
         body.sort_order,
         expected_car_number=body.expected_car_number,
     )
+    await _after_bay_saved(bay_id)
+    return result
 
 
 @router.put("/bays/{bay_id}")
 async def update_bay(bay_id: str, body: BayIn):
-    return await db.upsert_bay(
+    result = await db.upsert_bay(
         bay_id,
         body.name,
         body.camera_entity_id,
         body.sort_order,
         expected_car_number=body.expected_car_number,
     )
+    await _after_bay_saved(bay_id)
+    return result
+
+
+@router.patch("/bays/{bay_id}/expected-car")
+async def set_expected_car(bay_id: str, body: ExpectedCarIn):
+    """Assign which fleet car should park in this bay."""
+    bay = await _get_bay_or_404(bay_id)
+    result = await db.upsert_bay(
+        bay_id,
+        bay["name"],
+        bay["camera_entity_id"],
+        bay["sort_order"],
+        expected_car_number=body.expected_car_number,
+    )
+    row = await refresh_bay_correct_car(bay_id)
+    return {
+        **result,
+        "correct_car": row.get("correct_car") if row else "uncertain",
+    }
 
 
 @router.delete("/bays/{bay_id}")
