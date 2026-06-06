@@ -115,7 +115,7 @@ function renderDashboard() {
     btn.addEventListener("click", () => analyzeBay(btn.dataset.id));
   });
   grid.querySelectorAll(".dash-snapshot").forEach((btn) => {
-    btn.addEventListener("click", () => snapshotOnly(btn.dataset.id));
+    btn.addEventListener("click", () => takeSnapshot(btn.dataset.id, btn));
   });
 }
 
@@ -132,12 +132,23 @@ async function analyzeBay(bayId) {
   }
 }
 
-async function snapshotOnly(bayId) {
+async function takeSnapshot(bayId, btn) {
+  const button = btn || document.querySelector(`.dash-snapshot[data-id="${bayId}"]`);
+  const label = button?.textContent || "Take snapshot";
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Capturing…";
+  }
   try {
-    await api(`/snapshots/${bayId}/latest?fetch=true`, { method: "GET" });
+    await api(`/snapshots/${bayId}/capture`, { method: "POST" });
     await loadDashboard();
   } catch (err) {
     alert("Snapshot failed: " + err.message);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = label;
+    }
   }
 }
 
