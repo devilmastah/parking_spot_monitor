@@ -118,6 +118,46 @@ async def analyze_one(bay_id: str):
     return await analyze_single_bay(bay_id, fetch_fresh=True)
 
 
+@router.post("/analyze/{bay_id}/debug")
+async def analyze_one_debug(bay_id: str):
+    """Re-analyze latest snapshot and return vote counts (for troubleshooting)."""
+    from src.aruco import analyze_image_with_debug
+
+    bays = {b["id"]: b for b in await db.list_bays()}
+    bay = bays.get(bay_id)
+    if not bay:
+        raise HTTPException(404, "Bay not found")
+
+    fleet = await db.list_fleet()
+    path = latest_snapshot_for_bay(bay_id)
+    if not path:
+        raise HTTPException(404, "No snapshot on disk — take a snapshot first")
+
+    import cv2
+
+    image = cv2.imread(path)
+    if image is None:
+        raise HTTPException(500, f"Could not read snapshot: {path}")
+
+    result, debug = analyze_image_with_debug(image, fleet, settings.aruco_dictionary)
+    return {
+        "bay_id": bay_id,
+        "bay_name": bay["name"],
+        "snapshot_path": path,
+        "snapshot_url": _snapshot_url(path),
+        "dictionary": settings.aruco_dictionary,
+        "occupied": result.occupied,
+        "car_number": result.car_number,
+        "aruco_id_detected": result.aruco_id_detected,
+        "confidence": result.confidence,
+        "debug": {
+            "votes": debug.votes,
+            "best_confidence": debug.best_confidence,
+            "attempts": debug.attempts,
+        },
+    }
+
+
 @router.get("/snapshots/{bay_id}/latest")
 async def latest_snapshot(bay_id: str, fetch: bool = Query(default=True)):
     """Return latest snapshot. Set fetch=false to only use cached file on disk."""

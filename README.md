@@ -46,12 +46,19 @@ Use the ESPHome config in [`esphome/parking_bay_esp32cam.yaml`](esphome/parking_
 Generate ArUco markers (must match `aruco_dictionary` in add-on config, default **DICT_4X4_50**):
 
 ```bash
+python scripts/generate_aruco_markers.py --start 1 --count 10
+```
+
+Or manually:
+
+```bash
 python3 -c "
 import cv2
 from cv2 import aruco
 d = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
 for i in range(1, 11):
     img = aruco.generateImageMarker(d, i, 200)
+    img = cv2.copyMakeBorder(img, 30, 30, 30, 30, cv2.BORDER_CONSTANT, value=255)
     cv2.imwrite(f'aruco_{i}.png', img)
 "
 ```
@@ -110,8 +117,12 @@ Open the add-on Web UI:
 ## Marker tips
 
 - Use **DICT_4X4_50** for up to 50 cars (IDs 0–49)
-- Marker should fill a reasonable portion of the frame (aim for ~5–15% of image width)
-- Good lighting helps; consider ESP32-CAM flash LED for night
+- Generate markers with the script above — include the **white border** (quiet zone)
+- **Print on paper** and mount flat on the roof — do **not** test by showing a marker on a monitor (moire, glare, and skew break detection)
+- Marker should fill ~5–15% of the frame width; aim the ESP32-CAM fairly straight down
+- Add each car in **Fleet** with the same ArUco ID printed on its marker
+- If the dashboard shows **Unknown marker (ID n)** the marker was seen but that ID is not in Fleet
+- Good lighting helps; enable `flash_before_capture: true` only for dark bays
 - Empty bay = **no marker detected** → occupied OFF
 
 ## Development

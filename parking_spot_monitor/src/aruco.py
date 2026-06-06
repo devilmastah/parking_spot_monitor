@@ -1,7 +1,8 @@
 """ArUco marker detection for parking bay identification."""
 
 import logging
-from dataclasses import dataclass
+from collections import Counter
+from dataclasses import dataclass, field
 
 import cv2
 import numpy as np
@@ -22,6 +23,11 @@ ARUCO_DICTIONARIES = {
     "DICT_7X7_250": cv2.aruco.DICT_7X7_250,
 }
 
+DETECT_SCALES = (1.0, 1.5, 2.0)
+MIN_MARKER_CONFIDENCE = 0.12
+MIN_VOTES = 2
+HIGH_CONFIDENCE = 0.35
+
 
 @dataclass
 class ArucoResult:
@@ -31,16 +37,45 @@ class ArucoResult:
     confidence: float
 
 
+@dataclass
+class ArucoDebugInfo:
+    votes: dict[int, int] = field(default_factory=dict)
+    best_confidence: dict[int, float] = field(default_factory=dict)
+    attempts: int = 0
+
+
+def _make_detector_params() -> cv2.aruco.DetectorParameters:
+    """Tuned for noisy ESP32-CAM JPEG snapshots."""
+    params = cv2.aruco.DetectorParameters()
+    params.adaptiveThreshWinSizeMin = 3
+    params.adaptiveThreshWinSizeMax = 43
+    params.adaptiveThreshWinSizeStep = 4
+    params.adaptiveThreshConstant = 7
+    params.minMarkerPerimeterRate = 0.003
+    params.maxMarkerPerimeterRate = 4.0
+    params.minOtsuStdDev = 0.0
+    params.errorCorrectionRate = 0.6
+    params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
+    return params
+
+
 def _get_detector(dictionary_name: str):
     dict_id = ARUCO_DICTIONARIES.get(dictionary_name, cv2.aruco.DICT_4X4_50)
     dictionary = cv2.aruco.getPredefinedDictionary(dict_id)
-    params = cv2.aruco.DetectorParameters()
-    params.adaptiveThreshWinSizeMin = 3
-    params.adaptiveThreshWinSizeMax = 23
-    params.adaptiveThreshWinSizeStep = 10
-    params.minMarkerPerimeterRate = 0.03
-    params.maxMarkerPerimeterRate = 4.0
-    return cv2.aruco.ArucoDetector(dictionary, params)
+    return cv2.aruco.ArucoDetector(dictionary, _make_detector_params())
+
+
+def _gray_variants(gray: np.ndarray) -> list[np.ndarray]:
+    variants = [gray]
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    enhanced = clahe.apply(gray)
+    variants.append(enhanced)
+    variants.append(cv2.fastNlMeansDenoising(enhanced, None, 8, 7, 21))
+    sharp = cv2.addWeighted(
+        enhanced, 1.3, cv2.GaussianBlur(enhanced, (0, 0), 2), -0.3, 0
+    )
+    variants.append(sharp)
+    return variants
 
 
 def _marker_confidence(corners: np.ndarray, image_shape: tuple[int, ...]) -> float:
@@ -57,17 +92,82 @@ def _marker_confidence(corners: np.ndarray, image_shape: tuple[int, ...]) -> flo
         side_lengths = [
             np.linalg.norm(pts[i] - pts[(i + 1) % 4]) for i in range(4)
         ]
-        perimeter = sum(side_lengths)
         area = cv2.contourArea(pts.astype(np.float32))
-        if frame_area <= 0 or perimeter <= 0:
+        if frame_area <= 0 or sum(side_lengths) <= 0:
             continue
 
-        size_score = min(1.0, area / (frame_area * 0.02))
+        size_score = min(1.0, area / (frame_area * 0.005))
         ratio = max(side_lengths) / max(min(side_lengths), 1.0)
         shape_score = max(0.0, 1.0 - (ratio - 1.0) * 0.5)
         confidences.append(min(1.0, size_score * 0.6 + shape_score * 0.4))
 
     return round(max(confidences) if confidences else 0.0, 3)
+
+
+def _collect_detections(
+    image: np.ndarray,
+    dictionary_name: str,
+) -> tuple[Counter, dict[int, float], dict[int, np.ndarray], int]:
+    """Run multi-scale detection and aggregate votes per marker ID."""
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    detector = _get_detector(dictionary_name)
+    votes: Counter = Counter()
+    best_confidence: dict[int, float] = {}
+    best_corners: dict[int, np.ndarray] = {}
+    attempts = 0
+
+    for scale in DETECT_SCALES:
+        scaled = (
+            cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+            if scale > 1.0
+            else gray
+        )
+        for variant in _gray_variants(scaled):
+            attempts += 1
+            corners, ids, _rejected = detector.detectMarkers(variant)
+            if ids is None or len(ids) == 0:
+                continue
+
+            for idx, marker_id in enumerate(ids.flatten()):
+                conf = _marker_confidence(corners[idx : idx + 1], image.shape)
+                if conf < MIN_MARKER_CONFIDENCE:
+                    continue
+
+                marker_id = int(marker_id)
+                votes[marker_id] += 1
+                if conf > best_confidence.get(marker_id, 0.0):
+                    best_confidence[marker_id] = conf
+                    best_corners[marker_id] = corners[idx : idx + 1]
+
+    return votes, best_confidence, best_corners, attempts
+
+
+def _pick_winner(
+    votes: Counter,
+    best_confidence: dict[int, float],
+) -> tuple[int | None, float]:
+    if not votes:
+        return None, 0.0
+
+    ranked = sorted(
+        votes.keys(),
+        key=lambda marker_id: (votes[marker_id], best_confidence.get(marker_id, 0.0)),
+        reverse=True,
+    )
+    winner = ranked[0]
+    conf = best_confidence.get(winner, 0.0)
+    vote_count = votes[winner]
+
+    if vote_count >= MIN_VOTES or conf >= HIGH_CONFIDENCE:
+        return winner, conf
+
+    logger.debug(
+        "Rejected weak ArUco candidate id=%s votes=%s confidence=%s",
+        winner,
+        vote_count,
+        conf,
+    )
+    return None, 0.0
 
 
 def _match_fleet(aruco_id: int, fleet: list[dict]) -> int | None:
@@ -82,39 +182,49 @@ def analyze_image(
     fleet: list[dict],
     dictionary_name: str = "DICT_4X4_50",
 ) -> ArucoResult:
+    result, _debug = analyze_image_with_debug(image, fleet, dictionary_name)
+    return result
+
+
+def analyze_image_with_debug(
+    image: np.ndarray,
+    fleet: list[dict],
+    dictionary_name: str = "DICT_4X4_50",
+) -> tuple[ArucoResult, ArucoDebugInfo]:
     if image is None or image.size == 0:
-        return ArucoResult(False, None, None, 0.0)
+        return ArucoResult(False, None, None, 0.0), ArucoDebugInfo()
 
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    detector = _get_detector(dictionary_name)
-    corners, ids, _rejected = detector.detectMarkers(gray)
+    votes, best_confidence, _best_corners, attempts = _collect_detections(
+        image, dictionary_name
+    )
+    debug = ArucoDebugInfo(
+        votes=dict(votes),
+        best_confidence=best_confidence,
+        attempts=attempts,
+    )
 
-    if ids is None or len(ids) == 0:
-        return ArucoResult(False, None, None, 0.0)
+    winner_id, confidence = _pick_winner(votes, best_confidence)
+    if winner_id is None:
+        logger.info(
+            "No ArUco marker accepted (dictionary=%s votes=%s attempts=%s)",
+            dictionary_name,
+            dict(votes),
+            attempts,
+        )
+        return ArucoResult(False, None, None, 0.0), debug
 
-    best_id = None
-    best_conf = 0.0
-    best_corners = None
-
-    for idx, marker_id in enumerate(ids.flatten()):
-        conf = _marker_confidence(corners[idx : idx + 1], image.shape)
-        if conf > best_conf:
-            best_conf = conf
-            best_id = int(marker_id)
-            best_corners = corners[idx : idx + 1]
-
-    if best_id is None:
-        return ArucoResult(False, None, None, 0.0)
-
-    if best_corners is not None:
-        best_conf = max(best_conf, _marker_confidence(best_corners, image.shape))
-
-    car_number = _match_fleet(best_id, fleet)
-    confidence = best_conf if car_number is not None else round(best_conf * 0.5, 3)
+    car_number = _match_fleet(winner_id, fleet)
+    if car_number is None:
+        logger.info(
+            "ArUco id=%s detected but not in fleet (votes=%s confidence=%s)",
+            winner_id,
+            votes[winner_id],
+            confidence,
+        )
 
     return ArucoResult(
         occupied=True,
         car_number=car_number,
-        aruco_id_detected=best_id,
-        confidence=confidence,
-    )
+        aruco_id_detected=winner_id,
+        confidence=confidence if car_number is not None else round(confidence * 0.5, 3),
+    ), debug

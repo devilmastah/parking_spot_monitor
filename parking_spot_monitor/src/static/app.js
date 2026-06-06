@@ -67,7 +67,14 @@ function renderDashboard() {
       const hasResult = bay.analyzed_at != null;
       const occupied = bay.occupied === true;
       const statusClass = !hasResult ? "unknown" : occupied ? "occupied" : "empty";
-      const statusLabel = !hasResult ? "No data" : occupied ? "Occupied" : "Empty";
+      const unknownMarker = hasResult && occupied && bay.aruco_id_detected != null && bay.car_number == null;
+      const statusLabel = !hasResult
+        ? "No data"
+        : unknownMarker
+          ? `Unknown marker (ID ${bay.aruco_id_detected})`
+          : occupied
+            ? "Occupied"
+            : "Empty";
       const img = bay.snapshot_url
         ? `<img src="${addonUrl(bay.snapshot_url)}?t=${Date.now()}" alt="${bay.bay_name}">`
         : `<span class="no-image">No snapshot yet</span>`;
