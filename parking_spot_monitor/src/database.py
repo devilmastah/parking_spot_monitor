@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS bays (
     name TEXT NOT NULL,
     camera_entity_id TEXT NOT NULL UNIQUE,
     sort_order INTEGER NOT NULL DEFAULT 0,
+    expected_car_number INTEGER,
     created_at TEXT NOT NULL
 );
 
@@ -30,6 +31,7 @@ CREATE TABLE IF NOT EXISTS bay_states (
     car_number INTEGER,
     aruco_id_detected INTEGER,
     confidence REAL NOT NULL DEFAULT 0,
+    correct_car TEXT NOT NULL DEFAULT 'uncertain',
     analyzed_at TEXT,
     snapshot_path TEXT,
     FOREIGN KEY (bay_id) REFERENCES bays(id) ON DELETE CASCADE
@@ -49,7 +51,21 @@ class Database:
         os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
         async with self.connect() as db:
             await db.executescript(SCHEMA)
+            await self._migrate(db)
             await db.commit()
+
+    async def _migrate(self, db) -> None:
+        cur = await db.execute("PRAGMA table_info(bays)")
+        bay_cols = {row[1] for row in await cur.fetchall()}
+        if "expected_car_number" not in bay_cols:
+            await db.execute("ALTER TABLE bays ADD COLUMN expected_car_number INTEGER")
+
+        cur = await db.execute("PRAGMA table_info(bay_states)")
+        state_cols = {row[1] for row in await cur.fetchall()}
+        if "correct_car" not in state_cols:
+            await db.execute(
+                "ALTER TABLE bay_states ADD COLUMN correct_car TEXT NOT NULL DEFAULT 'uncertain'"
+            )
 
     @asynccontextmanager
     async def connect(self):
@@ -66,19 +82,25 @@ class Database:
             return [dict(row) for row in await cur.fetchall()]
 
     async def upsert_bay(
-        self, bay_id: str, name: str, camera_entity_id: str, sort_order: int = 0
+        self,
+        bay_id: str,
+        name: str,
+        camera_entity_id: str,
+        sort_order: int = 0,
+        expected_car_number: int | None = None,
     ) -> dict:
         async with self.connect() as db:
             await db.execute(
                 """
-                INSERT INTO bays (id, name, camera_entity_id, sort_order, created_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO bays (id, name, camera_entity_id, sort_order, expected_car_number, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     name=excluded.name,
                     camera_entity_id=excluded.camera_entity_id,
-                    sort_order=excluded.sort_order
+                    sort_order=excluded.sort_order,
+                    expected_car_number=excluded.expected_car_number
                 """,
-                (bay_id, name, camera_entity_id, sort_order, _now()),
+                (bay_id, name, camera_entity_id, sort_order, expected_car_number, _now()),
             )
             await db.commit()
         return {
@@ -86,6 +108,7 @@ class Database:
             "name": name,
             "camera_entity_id": camera_entity_id,
             "sort_order": sort_order,
+            "expected_car_number": expected_car_number,
         }
 
     async def delete_bay(self, bay_id: str) -> None:
@@ -127,19 +150,21 @@ class Database:
         aruco_id_detected: int | None,
         confidence: float,
         snapshot_path: str | None,
+        correct_car: str = "uncertain",
     ) -> None:
         async with self.connect() as db:
             await db.execute(
                 """
                 INSERT INTO bay_states (
                     bay_id, occupied, car_number, aruco_id_detected,
-                    confidence, analyzed_at, snapshot_path
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    confidence, correct_car, analyzed_at, snapshot_path
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(bay_id) DO UPDATE SET
                     occupied=excluded.occupied,
                     car_number=excluded.car_number,
                     aruco_id_detected=excluded.aruco_id_detected,
                     confidence=excluded.confidence,
+                    correct_car=excluded.correct_car,
                     analyzed_at=excluded.analyzed_at,
                     snapshot_path=excluded.snapshot_path
                 """,
@@ -149,6 +174,7 @@ class Database:
                     car_number,
                     aruco_id_detected,
                     confidence,
+                    correct_car,
                     _now(),
                     snapshot_path,
                 ),
@@ -180,10 +206,12 @@ class Database:
                     b.name AS bay_name,
                     b.camera_entity_id,
                     b.sort_order,
+                    b.expected_car_number,
                     s.occupied,
                     s.car_number,
                     s.aruco_id_detected,
                     s.confidence,
+                    s.correct_car,
                     s.analyzed_at,
                     s.snapshot_path
                 FROM bays b

@@ -32,6 +32,7 @@ class BayIn(BaseModel):
     name: str
     camera_entity_id: str
     sort_order: int = 0
+    expected_car_number: int | None = None
 
 
 class FleetIn(BaseModel):
@@ -63,12 +64,24 @@ async def list_bays():
 @router.post("/bays")
 async def create_bay(body: BayIn):
     bay_id = body.camera_entity_id.replace(".", "_").replace(" ", "_").lower()
-    return await db.upsert_bay(bay_id, body.name, body.camera_entity_id, body.sort_order)
+    return await db.upsert_bay(
+        bay_id,
+        body.name,
+        body.camera_entity_id,
+        body.sort_order,
+        expected_car_number=body.expected_car_number,
+    )
 
 
 @router.put("/bays/{bay_id}")
 async def update_bay(bay_id: str, body: BayIn):
-    return await db.upsert_bay(bay_id, body.name, body.camera_entity_id, body.sort_order)
+    return await db.upsert_bay(
+        bay_id,
+        body.name,
+        body.camera_entity_id,
+        body.sort_order,
+        expected_car_number=body.expected_car_number,
+    )
 
 
 @router.delete("/bays/{bay_id}")

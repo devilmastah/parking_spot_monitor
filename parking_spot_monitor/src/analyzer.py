@@ -7,6 +7,7 @@ import os
 import cv2
 
 from src.aruco import analyze_image
+from src.bay_matching import compute_correct_car
 from src.config import settings
 from src.database import db
 from src.ha_client import ha_client
@@ -21,6 +22,7 @@ def _slug_id(text: str) -> str:
 
 async def sync_addon_bays() -> None:
     """Import bays from add-on options into the database."""
+    existing = {b["id"]: b for b in await db.list_bays()}
     for bay in settings.load_addon_bays():
         if not isinstance(bay, dict):
             logger.warning("Skipping invalid bay entry: %r", bay)
@@ -31,7 +33,14 @@ async def sync_addon_bays() -> None:
             continue
         bay_id = _slug_id(entity_id)
         sort_order = int(bay.get("sort_order") or 0)
-        await db.upsert_bay(bay_id, name, entity_id, sort_order)
+        expected_raw = bay.get("expected_car_number")
+        if expected_raw not in (None, ""):
+            expected_car_number = int(expected_raw)
+        else:
+            expected_car_number = existing.get(bay_id, {}).get("expected_car_number")
+        await db.upsert_bay(
+            bay_id, name, entity_id, sort_order, expected_car_number=expected_car_number
+        )
 
 
 async def _analyze_bay_image(bay: dict, image_path: str, fleet: list[dict]) -> dict:
@@ -40,6 +49,13 @@ async def _analyze_bay_image(bay: dict, image_path: str, fleet: list[dict]) -> d
         raise RuntimeError(f"Could not read snapshot: {image_path}")
 
     result = analyze_image(image, fleet, settings.aruco_dictionary)
+    correct_car = compute_correct_car(
+        occupied=result.occupied,
+        car_number_detected=result.car_number,
+        aruco_id_detected=result.aruco_id_detected,
+        expected_car_number=bay.get("expected_car_number"),
+        fleet=fleet,
+    )
     await db.upsert_bay_state(
         bay_id=bay["id"],
         occupied=result.occupied,
@@ -47,6 +63,7 @@ async def _analyze_bay_image(bay: dict, image_path: str, fleet: list[dict]) -> d
         aruco_id_detected=result.aruco_id_detected,
         confidence=result.confidence,
         snapshot_path=image_path,
+        correct_car=correct_car,
     )
     mqtt_publisher.publish_bay_state(
         bay_id=bay["id"],
@@ -55,6 +72,8 @@ async def _analyze_bay_image(bay: dict, image_path: str, fleet: list[dict]) -> d
         car_number=result.car_number,
         aruco_id_detected=result.aruco_id_detected,
         confidence=result.confidence,
+        correct_car=correct_car,
+        expected_car_number=bay.get("expected_car_number"),
     )
     return {
         "bay_id": bay["id"],
@@ -63,6 +82,8 @@ async def _analyze_bay_image(bay: dict, image_path: str, fleet: list[dict]) -> d
         "car_number": result.car_number,
         "aruco_id_detected": result.aruco_id_detected,
         "confidence": result.confidence,
+        "correct_car": correct_car,
+        "expected_car_number": bay.get("expected_car_number"),
         "snapshot_path": image_path,
     }
 

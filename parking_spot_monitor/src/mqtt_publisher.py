@@ -46,7 +46,7 @@ class MQTTPublisher:
         return f"{settings.mqtt_topic_prefix}/{bay_id}/{suffix}"
 
     def publish_discovery(self, bay_id: str, bay_name: str) -> None:
-        if not self.client or bay_id in self.discovered_bays:
+        if not self.client:
             return
 
         device = {
@@ -94,6 +94,22 @@ class MQTTPublisher:
                 "device": device,
                 "icon": "mdi:percent",
             },
+            {
+                "platform": "sensor",
+                "name": f"{bay_name} Correct Car",
+                "unique_id": f"parking_{unique}_correct_car",
+                "state_topic": f"{prefix}/{bay_id}/correct_car",
+                "device": device,
+                "icon": "mdi:car-select",
+            },
+            {
+                "platform": "sensor",
+                "name": f"{bay_name} Expected Car",
+                "unique_id": f"parking_{unique}_expected_car",
+                "state_topic": f"{prefix}/{bay_id}/expected_car",
+                "device": device,
+                "icon": "mdi:car-arrow-right",
+            },
         ]
 
         for cfg in configs:
@@ -102,7 +118,7 @@ class MQTTPublisher:
             self.client.publish(topic, json.dumps(cfg), retain=True)
 
         self.discovered_bays.add(bay_id)
-        logger.info("Published MQTT discovery for bay %s", bay_id)
+        logger.debug("Published MQTT discovery for bay %s", bay_id)
 
     def publish_bay_state(
         self,
@@ -112,6 +128,8 @@ class MQTTPublisher:
         car_number: int | None,
         aruco_id_detected: int | None,
         confidence: float,
+        correct_car: str = "uncertain",
+        expected_car_number: int | None = None,
     ) -> None:
         if not self.client:
             return
@@ -133,6 +151,12 @@ class MQTTPublisher:
             str(round(confidence * 100, 1)),
             retain=True,
         )
+        self.client.publish(self._topic(bay_id, "correct_car"), correct_car, retain=True)
+        self.client.publish(
+            self._topic(bay_id, "expected_car"),
+            str(expected_car_number) if expected_car_number is not None else "none",
+            retain=True,
+        )
         self.client.publish(
             self._topic(bay_id, "state"),
             json.dumps(
@@ -141,6 +165,8 @@ class MQTTPublisher:
                     "car_number": car_number,
                     "aruco_id_detected": aruco_id_detected,
                     "confidence": confidence,
+                    "correct_car": correct_car,
+                    "expected_car_number": expected_car_number,
                 }
             ),
             retain=True,

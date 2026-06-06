@@ -84,8 +84,10 @@ mqtt_topic_prefix: parking_spot
 bays:
   - name: Bay 1
     camera_entity_id: camera.parking_bay_1
+    expected_car_number: 1
   - name: Bay 2
     camera_entity_id: camera.parking_bay_2
+    expected_car_number: 2
 ```
 
 | Option | Description | Default |
@@ -94,7 +96,7 @@ bays:
 | `capture_delay_seconds` | Pause between bay snapshots | `3` |
 | `flash_before_capture` | Call ESPHome flash script before snapshot (only needed in low light) | `false` |
 | `aruco_dictionary` | OpenCV dictionary name | `DICT_4X4_50` |
-| `bays` | List of `{name, camera_entity_id}` | `[]` |
+| `bays` | List of `{name, camera_entity_id, expected_car_number?}` | `[]` |
 
 **Capture order** follows `sort_order` in the Web UI (or list order from config).
 
@@ -104,15 +106,26 @@ Open the add-on Web UI:
 
 1. **Settings → Import bays from add-on config**
 2. **Fleet → Add car** — car number + ArUco ID (same ID printed on the marker)
-3. **Bays → Snapshot** on each bay to verify framing
-4. **Analyze all bays** → check **Live Status**
+3. **Configure bays → Edit** — set **Expected car number** for each fixed spot
+4. **Bays → Snapshot** on each bay to verify framing
+5. **Analyze all bays** → check **Live Status**
 
 ### 4. MQTT entities (per bay)
 
-- `binary_sensor.*_occupied`
-- `sensor.*_car_number`
-- `sensor.*_aruco_id`
-- `sensor.*_confidence`
+- `binary_sensor.*_occupied` — ON/OFF
+- `sensor.*_car_number` — detected fleet car number
+- `sensor.*_aruco_id` — detected marker ID
+- `sensor.*_confidence` — detection confidence (%)
+- `sensor.*_expected_car` — car number assigned to this bay
+- `sensor.*_correct_car` — `yes`, `no`, or `uncertain`
+
+**correct_car logic**
+
+| Value | Meaning |
+|-------|---------|
+| `yes` | Spot occupied and detected car matches the bay's expected car |
+| `no` | Spot empty, or a different car/marker is present |
+| `uncertain` | No expected car configured for this bay, or expected car not in Fleet |
 
 ## Marker tips
 

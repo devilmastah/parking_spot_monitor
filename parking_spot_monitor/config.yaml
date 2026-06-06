@@ -1,6 +1,6 @@
 name: Parking Spot Monitor
 description: Monitor parking bays via ESP32-CAM snapshots and roof-mounted ArUco markers
-version: "2.2.2"
+version: "2.3.0"
 slug: parking_spot_monitor
 init: false
 arch:
@@ -49,3 +49,4 @@ schema:
   bays:
     - name: str
       camera_entity_id: str
+      expected_car_number: int?

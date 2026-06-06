@@ -75,6 +75,11 @@ function renderDashboard() {
           : occupied
             ? "Occupied"
             : "Empty";
+      const correctCar = bay.correct_car || "uncertain";
+      const correctLabel =
+        correctCar === "yes" ? "Correct car" : correctCar === "no" ? "Wrong car" : "Car check N/A";
+      const correctClass =
+        correctCar === "yes" ? "correct-yes" : correctCar === "no" ? "correct-no" : "correct-unknown";
       const img = bay.snapshot_url
         ? `<img src="${addonUrl(bay.snapshot_url)}?t=${Date.now()}" alt="${bay.bay_name}">`
         : `<span class="no-image">No snapshot yet</span>`;
@@ -89,10 +94,12 @@ function renderDashboard() {
           </div>
           <code class="entity-id">${bay.camera_entity_id}</code>
           <div class="dash-stats">
-            <div><span class="label">Car #</span><strong>${bay.car_number ?? "—"}</strong></div>
+            <div><span class="label">Expected car</span><strong>${bay.expected_car_number ?? "—"}</strong></div>
+            <div><span class="label">Detected car</span><strong>${bay.car_number ?? "—"}</strong></div>
             <div><span class="label">ArUco ID</span><strong>${bay.aruco_id_detected ?? "—"}</strong></div>
             <div><span class="label">Confidence</span><strong>${hasResult ? pct + "%" : "—"}</strong></div>
           </div>
+          ${bay.expected_car_number != null && hasResult ? `<span class="badge ${correctClass}">${correctLabel}</span>` : ""}
           <div class="confidence-bar"><span style="width:${pct}%"></span></div>
           <div class="dash-meta">${formatTime(bay.analyzed_at)}</div>
           <div class="dash-actions">
@@ -188,7 +195,11 @@ async function loadBayConfig() {
     .map(
       (b) => `
     <div class="config-row">
-      <div><strong>${b.name}</strong><br><code>${b.camera_entity_id}</code></div>
+      <div>
+        <strong>${b.name}</strong><br>
+        <code>${b.camera_entity_id}</code><br>
+        <span class="hint">Expected car: ${b.expected_car_number ?? "not set"}</span>
+      </div>
       <div class="config-actions">
         <button class="btn small edit-bay" data-id="${b.id}">Edit</button>
         <button class="btn small danger delete-bay" data-id="${b.id}">Delete</button>
@@ -208,14 +219,17 @@ document.getElementById("add-bay").addEventListener("click", () => {
       { id: "bay-name", label: "Bay name", type: "text", placeholder: "Bay 1" },
       { id: "bay-entity", label: "Camera entity ID", type: "text", placeholder: "camera.parking_bay_1" },
       { id: "bay-order", label: "Capture order", type: "number", placeholder: "0" },
+      { id: "bay-expected", label: "Expected car number (optional)", type: "number", placeholder: "1" },
     ],
     async () => {
+      const expectedVal = document.getElementById("bay-expected").value;
       await api("/bays", {
         method: "POST",
         body: JSON.stringify({
           name: document.getElementById("bay-name").value,
           camera_entity_id: document.getElementById("bay-entity").value,
           sort_order: parseInt(document.getElementById("bay-order").value || "0", 10),
+          expected_car_number: expectedVal === "" ? null : parseInt(expectedVal, 10),
         }),
       });
       hideModal();
@@ -234,14 +248,22 @@ function editBay(bayId) {
       { id: "bay-name", label: "Bay name", type: "text", value: bay.name },
       { id: "bay-entity", label: "Camera entity ID", type: "text", value: bay.camera_entity_id },
       { id: "bay-order", label: "Capture order", type: "number", value: bay.sort_order },
+      {
+        id: "bay-expected",
+        label: "Expected car number (optional)",
+        type: "number",
+        value: bay.expected_car_number ?? "",
+      },
     ],
     async () => {
+      const expectedVal = document.getElementById("bay-expected").value;
       await api(`/bays/${bayId}`, {
         method: "PUT",
         body: JSON.stringify({
           name: document.getElementById("bay-name").value,
           camera_entity_id: document.getElementById("bay-entity").value,
           sort_order: parseInt(document.getElementById("bay-order").value || "0", 10),
+          expected_car_number: expectedVal === "" ? null : parseInt(expectedVal, 10),
         }),
       });
       hideModal();
