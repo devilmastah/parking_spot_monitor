@@ -66,7 +66,7 @@ Example (YAML mode):
 ha_url: http://supervisor/core
 snapshot_interval_minutes: 5
 capture_delay_seconds: 3
-flash_before_capture: true
+flash_before_capture: false
 aruco_dictionary: DICT_4X4_50
 mqtt_enabled: true
 mqtt_broker: core-mosquitto
@@ -85,7 +85,7 @@ bays:
 |--------|-------------|---------|
 | `snapshot_interval_minutes` | Full round-robin interval | `5` |
 | `capture_delay_seconds` | Pause between bay snapshots | `3` |
-| `flash_before_capture` | Call ESPHome `prepare_capture` script before each snapshot | `true` |
+| `flash_before_capture` | Call ESPHome flash script before snapshot (only needed in low light) | `false` |
 | `aruco_dictionary` | OpenCV dictionary name | `DICT_4X4_50` |
 | `bays` | List of `{name, camera_entity_id}` | `[]` |
 

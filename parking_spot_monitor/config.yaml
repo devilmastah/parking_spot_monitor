@@ -1,6 +1,6 @@
 name: Parking Spot Monitor
 description: Monitor parking bays via ESP32-CAM snapshots and roof-mounted ArUco markers
-version: "2.0.4"
+version: "2.0.5"
 slug: parking_spot_monitor
 init: false
 arch:
@@ -19,7 +19,7 @@ options:
   ha_url: http://supervisor/core
   snapshot_interval_minutes: 5
   capture_delay_seconds: 3
-  flash_before_capture: true
+  flash_before_capture: false
   prepare_capture_wait_ms: 2000
   snapshot_max_attempts: 3
   snapshot_retry_delay_seconds: 5

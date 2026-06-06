@@ -21,7 +21,7 @@ class Settings:
         default_factory=lambda: int(os.getenv("CAPTURE_DELAY", "3"))
     )
     flash_before_capture: bool = field(
-        default_factory=lambda: os.getenv("FLASH_BEFORE_CAPTURE", "true").lower() == "true"
+        default_factory=lambda: os.getenv("FLASH_BEFORE_CAPTURE", "false").lower() == "true"
     )
     prepare_capture_wait_ms: int = field(
         default_factory=lambda: int(os.getenv("PREPARE_CAPTURE_WAIT_MS", "2000"))

@@ -44,18 +44,17 @@ Entity IDs use underscores (ESPHome replaces `-` with `_`).
 - Use **Test Flash** at night to verify exposure
 - Use **Snapshot** in the Parking Spot Monitor Web UI to confirm marker size (aim for ~5–15% of frame width)
 
-## Scripts
+## Flash (optional)
 
-### `prepare_capture`
+The ESPHome config includes a flash LED script for **night / dark bays only**. With good daylight you do **not** need it.
 
-Turns the flash on for 350 ms, then off, then waits 150 ms for the sensor to settle.  
-Parking Spot Monitor calls this automatically when **Flash before capture** is enabled in add-on config.
+In the add-on config leave:
 
-Manual test in HA: **Developer tools → Services → `script.turn_on`** with entity `script.parking_bay_1_prepare_capture`.
+```yaml
+flash_before_capture: false
+```
 
-### `test_flash`
-
-Double-flash for install/debug.
+The add-on will fetch snapshots directly with no flash. The ESPHome **Test Flash** button remains for manual checks if you ever need it.
 
 ## PSRAM
 
