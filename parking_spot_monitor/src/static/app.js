@@ -1,6 +1,8 @@
 const API = "/api";
+const REFRESH_MS = 30000;
 
-const state = { bays: [], fleet: [], spots: [], system: {} };
+const state = { bays: [], fleet: [], dashboard: [], system: {} };
+let refreshTimer = null;
 
 document.querySelectorAll(".tab").forEach((tab) => {
   tab.addEventListener("click", () => {
@@ -8,8 +10,14 @@ document.querySelectorAll(".tab").forEach((tab) => {
     document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
     tab.classList.add("active");
     document.getElementById(`tab-${tab.dataset.tab}`).classList.add("active");
-    if (tab.dataset.tab === "status") loadStatus();
-    if (tab.dataset.tab === "settings") loadSettings();
+    if (tab.dataset.tab === "dashboard") {
+      loadDashboard();
+      startAutoRefresh();
+    } else {
+      stopAutoRefresh();
+      if (tab.dataset.tab === "bays") loadBayConfig();
+      if (tab.dataset.tab === "settings") loadSettings();
+    }
   });
 });
 
@@ -22,91 +30,161 @@ async function api(path, options = {}) {
   return res.json();
 }
 
-async function loadBays() {
-  state.bays = await api("/bays");
-  renderBays();
+function formatTime(iso) {
+  if (!iso) return "Never analyzed";
+  return new Date(iso).toLocaleString();
 }
 
-function renderBays() {
-  const container = document.getElementById("bay-list");
-  if (!state.bays.length) {
-    container.innerHTML = `<p class="hint">No bays configured yet. Add one or import from add-on config.</p>`;
+function confPct(v) {
+  return Math.round((v || 0) * 100);
+}
+
+// ── Dashboard ─────────────────────────────────────────────────────────────
+
+async function loadDashboard() {
+  state.dashboard = await api("/dashboard");
+  renderDashboard();
+}
+
+function renderDashboard() {
+  const grid = document.getElementById("dashboard-grid");
+  if (!state.dashboard.length) {
+    grid.innerHTML = `<p class="hint">No bays configured. Go to <strong>Configure bays</strong> or import from add-on config.</p>`;
     return;
   }
 
-  container.innerHTML = state.bays
-    .map(
-      (bay) => `
-    <article class="bay-card" data-id="${bay.id}">
-      <div class="bay-card-header">
-        <h3>${bay.name}</h3>
-        <code>${bay.camera_entity_id}</code>
-      </div>
-      <div class="bay-preview" id="preview-${bay.id}">
-        <span class="hint">No snapshot yet</span>
-      </div>
-      <div class="bay-actions">
-        <button class="btn small refresh-snap" data-id="${bay.id}">Snapshot</button>
-        <button class="btn small primary analyze-one" data-id="${bay.id}">Analyze</button>
-        <button class="btn small edit-bay" data-id="${bay.id}">Edit</button>
-        <button class="btn small danger delete-bay" data-id="${bay.id}">Delete</button>
-      </div>
-    </article>`
-    )
+  grid.innerHTML = state.dashboard
+    .map((bay) => {
+      const pct = confPct(bay.confidence);
+      const hasResult = bay.analyzed_at != null;
+      const occupied = bay.occupied === true;
+      const statusClass = !hasResult ? "unknown" : occupied ? "occupied" : "empty";
+      const statusLabel = !hasResult ? "No data" : occupied ? "Occupied" : "Empty";
+      const img = bay.snapshot_url
+        ? `<img src="${bay.snapshot_url}?t=${Date.now()}" alt="${bay.bay_name}">`
+        : `<span class="no-image">No snapshot yet</span>`;
+
+      return `
+      <article class="dash-card ${statusClass}" data-id="${bay.bay_id}">
+        <div class="dash-image">${img}</div>
+        <div class="dash-body">
+          <div class="dash-header">
+            <h3>${bay.bay_name}</h3>
+            <span class="badge ${statusClass}">${statusLabel}</span>
+          </div>
+          <code class="entity-id">${bay.camera_entity_id}</code>
+          <div class="dash-stats">
+            <div><span class="label">Car #</span><strong>${bay.car_number ?? "—"}</strong></div>
+            <div><span class="label">ArUco ID</span><strong>${bay.aruco_id_detected ?? "—"}</strong></div>
+            <div><span class="label">Confidence</span><strong>${hasResult ? pct + "%" : "—"}</strong></div>
+          </div>
+          <div class="confidence-bar"><span style="width:${pct}%"></span></div>
+          <div class="dash-meta">${formatTime(bay.analyzed_at)}</div>
+          <div class="dash-actions">
+            <button class="btn small primary dash-analyze" data-id="${bay.bay_id}">Analyze</button>
+            <button class="btn small dash-snapshot" data-id="${bay.bay_id}">Snapshot only</button>
+          </div>
+        </div>
+      </article>`;
+    })
     .join("");
 
-  container.querySelectorAll(".refresh-snap").forEach((btn) => {
-    btn.addEventListener("click", () => loadBaySnapshot(btn.dataset.id));
-  });
-  container.querySelectorAll(".analyze-one").forEach((btn) => {
+  grid.querySelectorAll(".dash-analyze").forEach((btn) => {
     btn.addEventListener("click", () => analyzeBay(btn.dataset.id));
   });
-  container.querySelectorAll(".edit-bay").forEach((btn) => {
-    btn.addEventListener("click", () => editBay(btn.dataset.id));
+  grid.querySelectorAll(".dash-snapshot").forEach((btn) => {
+    btn.addEventListener("click", () => snapshotOnly(btn.dataset.id));
   });
-  container.querySelectorAll(".delete-bay").forEach((btn) => {
-    btn.addEventListener("click", () => deleteBay(btn.dataset.id));
-  });
-
-  state.bays.forEach((bay) => loadBaySnapshot(bay.id, true));
-}
-
-async function loadBaySnapshot(bayId, silent = false) {
-  const preview = document.getElementById(`preview-${bayId}`);
-  if (!preview) return;
-  try {
-    const data = await api(`/snapshots/${bayId}/latest`);
-    preview.innerHTML = `<img src="${data.url}?t=${Date.now()}" alt="Bay snapshot">`;
-  } catch (err) {
-    if (!silent) alert("Snapshot failed: " + err.message);
-  }
 }
 
 async function analyzeBay(bayId) {
+  const btn = document.querySelector(`.dash-analyze[data-id="${bayId}"]`);
+  if (btn) { btn.disabled = true; btn.textContent = "…"; }
   try {
     await api(`/analyze/${bayId}`, { method: "POST" });
-    await loadBaySnapshot(bayId);
-    alert("Analysis complete. Check Live Status.");
+    await loadDashboard();
   } catch (err) {
     alert("Analysis failed: " + err.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "Analyze"; }
   }
 }
 
-document.getElementById("analyze-all").addEventListener("click", async () => {
-  const btn = document.getElementById("analyze-all");
+async function snapshotOnly(bayId) {
+  try {
+    await api(`/snapshots/${bayId}/latest?fetch=true`, { method: "GET" });
+    await loadDashboard();
+  } catch (err) {
+    alert("Snapshot failed: " + err.message);
+  }
+}
+
+document.getElementById("refresh-dashboard").addEventListener("click", loadDashboard);
+
+document.getElementById("analyze-all-dash").addEventListener("click", async () => {
+  const btn = document.getElementById("analyze-all-dash");
   btn.disabled = true;
   btn.textContent = "Analyzing…";
   try {
     const result = await api("/analyze", { method: "POST" });
-    alert(`Done: ${result.analyzed}/${result.bays} bays` + (result.errors.length ? `\nErrors:\n${result.errors.join("\n")}` : ""));
-    await loadBays();
+    if (result.errors?.length) {
+      alert(`Done ${result.analyzed}/${result.bays} bays.\n\nErrors:\n${result.errors.join("\n")}`);
+    }
+    await loadDashboard();
   } catch (err) {
     alert("Analysis failed: " + err.message);
   } finally {
     btn.disabled = false;
-    btn.textContent = "Analyze all bays";
+    btn.textContent = "Analyze all";
   }
 });
+
+function startAutoRefresh() {
+  stopAutoRefresh();
+  if (!document.getElementById("auto-refresh").checked) return;
+  refreshTimer = setInterval(() => {
+    if (document.getElementById("tab-dashboard").classList.contains("active")) {
+      loadDashboard();
+    }
+  }, REFRESH_MS);
+}
+
+function stopAutoRefresh() {
+  if (refreshTimer) clearInterval(refreshTimer);
+  refreshTimer = null;
+}
+
+document.getElementById("auto-refresh").addEventListener("change", () => {
+  if (document.getElementById("tab-dashboard").classList.contains("active")) {
+    startAutoRefresh();
+  }
+});
+
+// ── Bay config ──────────────────────────────────────────────────────────────
+
+async function loadBayConfig() {
+  state.bays = await api("/bays");
+  const list = document.getElementById("bay-config-list");
+  if (!state.bays.length) {
+    list.innerHTML = `<p class="hint">No bays yet.</p>`;
+    return;
+  }
+  list.innerHTML = state.bays
+    .map(
+      (b) => `
+    <div class="config-row">
+      <div><strong>${b.name}</strong><br><code>${b.camera_entity_id}</code></div>
+      <div class="config-actions">
+        <button class="btn small edit-bay" data-id="${b.id}">Edit</button>
+        <button class="btn small danger delete-bay" data-id="${b.id}">Delete</button>
+      </div>
+    </div>`
+    )
+    .join("");
+
+  list.querySelectorAll(".edit-bay").forEach((btn) => btn.addEventListener("click", () => editBay(btn.dataset.id)));
+  list.querySelectorAll(".delete-bay").forEach((btn) => btn.addEventListener("click", () => deleteBay(btn.dataset.id)));
+}
 
 document.getElementById("add-bay").addEventListener("click", () => {
   showModal(
@@ -126,7 +204,8 @@ document.getElementById("add-bay").addEventListener("click", () => {
         }),
       });
       hideModal();
-      loadBays();
+      loadBayConfig();
+      loadDashboard();
     }
   );
 });
@@ -151,7 +230,8 @@ function editBay(bayId) {
         }),
       });
       hideModal();
-      loadBays();
+      loadBayConfig();
+      loadDashboard();
     }
   );
 }
@@ -159,8 +239,11 @@ function editBay(bayId) {
 async function deleteBay(bayId) {
   if (!confirm("Delete this bay?")) return;
   await api(`/bays/${bayId}`, { method: "DELETE" });
-  loadBays();
+  loadBayConfig();
+  loadDashboard();
 }
+
+// ── Fleet ───────────────────────────────────────────────────────────────────
 
 async function loadFleet() {
   state.fleet = await api("/fleet");
@@ -176,7 +259,6 @@ async function loadFleet() {
     </tr>`
     )
     .join("");
-
   tbody.querySelectorAll("button").forEach((btn) => {
     btn.addEventListener("click", async () => {
       if (!confirm("Remove this car?")) return;
@@ -209,33 +291,7 @@ document.getElementById("add-car").addEventListener("click", () => {
   );
 });
 
-async function loadStatus() {
-  state.spots = await api("/spots");
-  const grid = document.getElementById("status-grid");
-  if (!state.spots.length) {
-    grid.innerHTML = `<p class="hint">No results yet. Configure bays and run analysis.</p>`;
-    return;
-  }
-
-  grid.innerHTML = state.spots
-    .map((s) => {
-      const confPct = Math.round((s.confidence || 0) * 100);
-      return `
-      <div class="status-card ${s.occupied ? "occupied" : "empty"}">
-        <h4>${s.bay_name}</h4>
-        <div class="meta">${s.camera_entity_id}</div>
-        <div class="status-row"><span class="label">Status</span><span class="badge ${s.occupied ? "occupied" : "empty"}">${s.occupied ? "Occupied" : "Empty"}</span></div>
-        <div class="status-row"><span class="label">Car #</span><span>${s.car_number ?? "—"}</span></div>
-        <div class="status-row"><span class="label">ArUco ID</span><span><code>${s.aruco_id_detected ?? "—"}</code></span></div>
-        <div class="status-row"><span class="label">Confidence</span><span>${confPct}%</span></div>
-        <div class="confidence-bar"><span style="width:${confPct}%"></span></div>
-        <div class="meta">${s.analyzed_at ? new Date(s.analyzed_at).toLocaleString() : ""}</div>
-      </div>`;
-    })
-    .join("");
-}
-
-document.getElementById("refresh-status").addEventListener("click", loadStatus);
+// ── Settings ────────────────────────────────────────────────────────────────
 
 async function loadSettings() {
   state.system = await api("/status");
@@ -245,7 +301,8 @@ async function loadSettings() {
 document.getElementById("import-addon-bays").addEventListener("click", async () => {
   const imported = await api("/import-addon-bays", { method: "POST" });
   alert(`Imported ${imported.length} bay(s)`);
-  loadBays();
+  loadBayConfig();
+  loadDashboard();
 });
 
 function showModal(title, fields, onConfirm) {
@@ -274,8 +331,9 @@ document.getElementById("modal-cancel").addEventListener("click", hideModal);
 async function init() {
   try {
     state.system = await api("/status");
-    await loadBays();
+    await loadDashboard();
     await loadFleet();
+    startAutoRefresh();
   } catch (err) {
     document.querySelector("main").innerHTML = `<p class="error">Failed to connect: ${err.message}</p>`;
   }

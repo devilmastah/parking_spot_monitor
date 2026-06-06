@@ -170,5 +170,32 @@ class Database:
                 row["occupied"] = bool(row["occupied"])
             return rows
 
+    async def list_dashboard(self) -> list[dict]:
+        """All bays with optional last analysis (LEFT JOIN)."""
+        async with self.connect() as db:
+            cur = await db.execute(
+                """
+                SELECT
+                    b.id AS bay_id,
+                    b.name AS bay_name,
+                    b.camera_entity_id,
+                    b.sort_order,
+                    s.occupied,
+                    s.car_number,
+                    s.aruco_id_detected,
+                    s.confidence,
+                    s.analyzed_at,
+                    s.snapshot_path
+                FROM bays b
+                LEFT JOIN bay_states s ON s.bay_id = b.id
+                ORDER BY b.sort_order, b.name
+                """
+            )
+            rows = [dict(row) for row in await cur.fetchall()]
+            for row in rows:
+                if row.get("occupied") is not None:
+                    row["occupied"] = bool(row["occupied"])
+            return rows
+
 
 db = Database()

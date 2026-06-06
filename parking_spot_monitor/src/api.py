@@ -3,7 +3,7 @@
 import os
 import uuid
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
 from src.analyzer import analyze_all_bays, analyze_single_bay, latest_snapshot_for_bay
@@ -12,6 +12,20 @@ from src.database import db
 from src.ha_client import ha_client
 
 router = APIRouter(prefix="/api")
+
+
+def _snapshot_url(path: str | None) -> str | None:
+    if not path or not os.path.isfile(path):
+        return None
+    rel = os.path.relpath(path, settings.data_dir).replace("\\", "/")
+    return f"/data/{rel}"
+
+
+def _enrich_bay_row(row: dict) -> dict:
+    path = row.get("snapshot_path") or latest_snapshot_for_bay(row["bay_id"])
+    row["snapshot_path"] = path
+    row["snapshot_url"] = _snapshot_url(path)
+    return row
 
 
 class BayIn(BaseModel):
@@ -81,7 +95,17 @@ async def delete_fleet_car(car_number: int):
 
 @router.get("/spots")
 async def list_spots():
-    return await db.list_bay_states()
+    rows = await db.list_bay_states()
+    for row in rows:
+        row["snapshot_url"] = _snapshot_url(row.get("snapshot_path"))
+    return rows
+
+
+@router.get("/dashboard")
+async def dashboard():
+    """All bays with last snapshot URL and analysis results for the debug UI."""
+    rows = await db.list_dashboard()
+    return [_enrich_bay_row(row) for row in rows]
 
 
 @router.post("/analyze")
@@ -95,16 +119,20 @@ async def analyze_one(bay_id: str):
 
 
 @router.get("/snapshots/{bay_id}/latest")
-async def latest_snapshot(bay_id: str):
-    path = latest_snapshot_for_bay(bay_id)
+async def latest_snapshot(bay_id: str, fetch: bool = Query(default=True)):
+    """Return latest snapshot. Set fetch=false to only use cached file on disk."""
     bays = {b["id"]: b for b in await db.list_bays()}
     bay = bays.get(bay_id)
     if not bay:
         raise HTTPException(404, "Bay not found")
 
-    if not path:
+    if fetch:
         path = ha_client.snapshot_filename(bay_id)
         await ha_client.fetch_snapshot(bay["camera_entity_id"], path)
+    else:
+        path = latest_snapshot_for_bay(bay_id)
+        if not path:
+            raise HTTPException(404, "No cached snapshot")
 
     rel = os.path.relpath(path, settings.data_dir).replace("\\", "/")
     return {"path": rel, "url": f"/data/{rel}"}

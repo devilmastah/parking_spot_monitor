@@ -334,3 +334,119 @@ th { background: var(--surface2); color: var(--muted); font-weight: 500; }
 
 .badge.occupied { background: rgba(34, 197, 94, 0.2); color: var(--success); }
 .badge.empty { background: rgba(139, 156, 179, 0.2); color: var(--muted); }
+.badge.unknown { background: rgba(245, 158, 11, 0.2); color: var(--warning); }
+
+/* Dashboard */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 1.25rem;
+}
+
+.dash-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.dash-card.occupied { border-top: 3px solid var(--success); }
+.dash-card.empty { border-top: 3px solid var(--muted); }
+.dash-card.unknown { border-top: 3px solid var(--warning); }
+
+.dash-image {
+  background: #000;
+  min-height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dash-image img {
+  width: 100%;
+  max-height: 280px;
+  object-fit: contain;
+  display: block;
+}
+
+.no-image {
+  color: var(--muted);
+  font-size: 0.9rem;
+  padding: 2rem;
+}
+
+.dash-body { padding: 1rem; flex: 1; display: flex; flex-direction: column; gap: 0.5rem; }
+
+.dash-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.dash-header h3 { font-size: 1.05rem; }
+
+.entity-id {
+  font-size: 0.75rem;
+  color: var(--muted);
+  word-break: break-all;
+}
+
+.dash-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.dash-stats .label {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.dash-stats strong { font-size: 1.1rem; }
+
+.dash-meta { font-size: 0.8rem; color: var(--muted); }
+
+.dash-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: auto;
+  padding-top: 0.5rem;
+}
+
+.inline-check {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 0.5rem !important;
+  color: var(--muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.inline-check input { width: auto; min-width: unset; }
+
+.config-list {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.config-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+  gap: 1rem;
+}
+
+.config-row:last-child { border-bottom: none; }
+
+.config-actions { display: flex; gap: 0.5rem; flex-shrink: 0; }

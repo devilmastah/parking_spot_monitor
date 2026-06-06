@@ -9,25 +9,37 @@
 <body>
   <header>
     <h1>Parking Spot Monitor</h1>
-    <p class="subtitle">One ESP32-CAM per bay · ArUco markers on car roofs · sequential capture</p>
+    <p class="subtitle">Dashboard · last snapshot &amp; ArUco result per bay</p>
   </header>
 
   <nav class="tabs">
-    <button class="tab active" data-tab="bays">Bays</button>
+    <button class="tab active" data-tab="dashboard">Dashboard</button>
+    <button class="tab" data-tab="bays">Configure bays</button>
     <button class="tab" data-tab="fleet">Fleet</button>
-    <button class="tab" data-tab="status">Live Status</button>
     <button class="tab" data-tab="settings">Settings</button>
   </nav>
 
   <main>
-    <section id="tab-bays" class="panel active">
+    <section id="tab-dashboard" class="panel active">
+      <div class="toolbar">
+        <h2>Bay dashboard</h2>
+        <label class="inline-check">
+          <input type="checkbox" id="auto-refresh" checked> Auto-refresh (30s)
+        </label>
+        <button id="refresh-dashboard" class="btn">Refresh</button>
+        <button id="analyze-all-dash" class="btn primary">Analyze all</button>
+      </div>
+      <p class="hint">Shows the <strong>last analyzed snapshot</strong> and detection result per bay. Use Analyze to capture a new image.</p>
+      <div id="dashboard-grid" class="dashboard-grid"></div>
+    </section>
+
+    <section id="tab-bays" class="panel">
       <div class="toolbar">
         <h2>Parking bays</h2>
-        <button id="analyze-all" class="btn primary">Analyze all bays</button>
-        <button id="add-bay" class="btn">Add bay</button>
+        <button id="add-bay" class="btn primary">Add bay</button>
       </div>
-      <p class="hint">Each bay is one ESP32-CAM in ESPHome, exposed as a <code>camera.*</code> entity in Home Assistant.</p>
-      <div id="bay-list" class="bay-grid"></div>
+      <p class="hint">Each bay is one ESP32-CAM entity in Home Assistant.</p>
+      <div id="bay-config-list" class="config-list"></div>
     </section>
 
     <section id="tab-fleet" class="panel">
@@ -35,33 +47,17 @@
         <h2>Fleet · ArUco markers</h2>
         <button id="add-car" class="btn primary">Add car</button>
       </div>
-      <p class="hint">Print an ArUco marker for each car. The marker ID must match the fleet entry below (use <code>DICT_4X4_50</code> unless you changed the dictionary).</p>
       <table id="fleet-table">
         <thead>
-          <tr>
-            <th>Car #</th>
-            <th>ArUco ID</th>
-            <th>Notes</th>
-            <th></th>
-          </tr>
+          <tr><th>Car #</th><th>ArUco ID</th><th>Notes</th><th></th></tr>
         </thead>
         <tbody></tbody>
       </table>
     </section>
 
-    <section id="tab-status" class="panel">
-      <div class="toolbar">
-        <h2>Bay status</h2>
-        <button id="refresh-status" class="btn">Refresh</button>
-      </div>
-      <div id="status-grid" class="status-grid"></div>
-    </section>
-
     <section id="tab-settings" class="panel">
       <h2>Import from add-on config</h2>
-      <p class="hint">Bays defined in the add-on Configuration tab can be imported here.</p>
       <button id="import-addon-bays" class="btn primary">Import bays from add-on config</button>
-
       <h2>System</h2>
       <pre id="system-info"></pre>
     </section>
