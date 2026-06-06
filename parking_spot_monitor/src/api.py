@@ -18,7 +18,7 @@ def _snapshot_url(path: str | None) -> str | None:
     if not path or not os.path.isfile(path):
         return None
     rel = os.path.relpath(path, settings.data_dir).replace("\\", "/")
-    return f"/data/{rel}"
+    return f"data/{rel}"
 
 
 def _enrich_bay_row(row: dict) -> dict:
@@ -135,7 +135,7 @@ async def latest_snapshot(bay_id: str, fetch: bool = Query(default=True)):
             raise HTTPException(404, "No cached snapshot")
 
     rel = os.path.relpath(path, settings.data_dir).replace("\\", "/")
-    return {"path": rel, "url": f"/data/{rel}"}
+    return {"path": rel, "url": f"data/{rel}"}
 
 
 @router.post("/snapshots/{bay_id}/upload")

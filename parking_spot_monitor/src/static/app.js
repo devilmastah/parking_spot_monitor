@@ -1,4 +1,11 @@
-const API = "/api";
+/** Resolve paths for HA Ingress (absolute /api and /static break behind ingress proxy). */
+function addonUrl(relativePath) {
+  const base = window.location.href.endsWith("/")
+    ? window.location.href
+    : `${window.location.href}/`;
+  return new URL(relativePath.replace(/^\//, ""), base).href;
+}
+
 const REFRESH_MS = 30000;
 
 const state = { bays: [], fleet: [], dashboard: [], system: {} };
@@ -22,7 +29,8 @@ document.querySelectorAll(".tab").forEach((tab) => {
 });
 
 async function api(path, options = {}) {
-  const res = await fetch(`${API}${path}`, {
+  const rel = `api${path.startsWith("/") ? path : `/${path}`}`;
+  const res = await fetch(addonUrl(rel), {
     headers: { "Content-Type": "application/json" },
     ...options,
   });
@@ -61,7 +69,7 @@ function renderDashboard() {
       const statusClass = !hasResult ? "unknown" : occupied ? "occupied" : "empty";
       const statusLabel = !hasResult ? "No data" : occupied ? "Occupied" : "Empty";
       const img = bay.snapshot_url
-        ? `<img src="${bay.snapshot_url}?t=${Date.now()}" alt="${bay.bay_name}">`
+        ? `<img src="${addonUrl(bay.snapshot_url)}?t=${Date.now()}" alt="${bay.bay_name}">`
         : `<span class="no-image">No snapshot yet</span>`;
 
       return `
