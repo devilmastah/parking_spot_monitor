@@ -1,7 +1,6 @@
 """ArUco marker detection for parking bay identification."""
 
 import logging
-from collections import Counter
 from dataclasses import dataclass, field
 
 import cv2
@@ -23,10 +22,7 @@ ARUCO_DICTIONARIES = {
     "DICT_7X7_250": cv2.aruco.DICT_7X7_250,
 }
 
-DETECT_SCALES = (1.0, 1.5, 2.0)
-MIN_MARKER_CONFIDENCE = 0.12
-MIN_VOTES = 2
-HIGH_CONFIDENCE = 0.35
+OCCUPIED_CONFIDENCE_THRESHOLD = 0.5
 
 
 @dataclass
@@ -46,15 +42,13 @@ class ArucoDebugInfo:
 
 
 def _make_detector_params() -> cv2.aruco.DetectorParameters:
-    """Tuned for noisy ESP32-CAM JPEG snapshots."""
+    """Standard params — flip handles ESP32 mirror; avoid aggressive multi-pass tuning."""
     params = cv2.aruco.DetectorParameters()
     params.adaptiveThreshWinSizeMin = 3
-    params.adaptiveThreshWinSizeMax = 43
-    params.adaptiveThreshWinSizeStep = 4
-    params.adaptiveThreshConstant = 7
-    params.minMarkerPerimeterRate = 0.003
+    params.adaptiveThreshWinSizeMax = 23
+    params.adaptiveThreshWinSizeStep = 10
+    params.minMarkerPerimeterRate = 0.01
     params.maxMarkerPerimeterRate = 4.0
-    params.minOtsuStdDev = 0.0
     params.errorCorrectionRate = 0.6
     params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
     return params
@@ -64,19 +58,6 @@ def _get_detector(dictionary_name: str):
     dict_id = ARUCO_DICTIONARIES.get(dictionary_name, cv2.aruco.DICT_4X4_50)
     dictionary = cv2.aruco.getPredefinedDictionary(dict_id)
     return cv2.aruco.ArucoDetector(dictionary, _make_detector_params())
-
-
-def _gray_variants(gray: np.ndarray) -> list[np.ndarray]:
-    variants = [gray]
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    enhanced = clahe.apply(gray)
-    variants.append(enhanced)
-    variants.append(cv2.fastNlMeansDenoising(enhanced, None, 8, 7, 21))
-    sharp = cv2.addWeighted(
-        enhanced, 1.3, cv2.GaussianBlur(enhanced, (0, 0), 2), -0.3, 0
-    )
-    variants.append(sharp)
-    return variants
 
 
 def _marker_confidence(corners: np.ndarray, image_shape: tuple[int, ...]) -> float:
@@ -105,119 +86,59 @@ def _marker_confidence(corners: np.ndarray, image_shape: tuple[int, ...]) -> flo
     return round(max(confidences) if confidences else 0.0, 3)
 
 
-def _collect_detections(
+def _best_detection_in_image(
     image: np.ndarray,
     dictionary_name: str,
-) -> tuple[Counter, dict[int, float], dict[int, np.ndarray], int]:
-    """Run multi-scale detection and aggregate votes per marker ID."""
+) -> tuple[int | None, float, int]:
+    """Single-pass detection on one orientation."""
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     detector = _get_detector(dictionary_name)
-    votes: Counter = Counter()
-    best_confidence: dict[int, float] = {}
-    best_corners: dict[int, np.ndarray] = {}
-    attempts = 0
+    corners, ids, _rejected = detector.detectMarkers(gray)
 
-    for scale in DETECT_SCALES:
-        scaled = (
-            cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
-            if scale > 1.0
-            else gray
-        )
-        for variant in _gray_variants(scaled):
-            attempts += 1
-            corners, ids, _rejected = detector.detectMarkers(variant)
-            if ids is None or len(ids) == 0:
-                continue
+    best_id: int | None = None
+    best_conf = 0.0
 
-            for idx, marker_id in enumerate(ids.flatten()):
-                conf = _marker_confidence(corners[idx : idx + 1], image.shape)
-                if conf < MIN_MARKER_CONFIDENCE:
-                    continue
+    if ids is not None and len(ids) > 0:
+        for idx, marker_id in enumerate(ids.flatten()):
+            conf = _marker_confidence(corners[idx : idx + 1], image.shape)
+            if conf > best_conf:
+                best_conf = conf
+                best_id = int(marker_id)
 
-                marker_id = int(marker_id)
-                votes[marker_id] += 1
-                if conf > best_confidence.get(marker_id, 0.0):
-                    best_confidence[marker_id] = conf
-                    best_corners[marker_id] = corners[idx : idx + 1]
-
-    return votes, best_confidence, best_corners, attempts
+    return best_id, best_conf, 1
 
 
-def _merge_detection_runs(
-    runs: list[tuple[Counter, dict[int, float], dict[int, np.ndarray], int]],
-) -> tuple[Counter, dict[int, float], dict[int, np.ndarray], int]:
-    """Combine votes from multiple orientations (e.g. normal + horizontally flipped)."""
-    merged_votes: Counter = Counter()
-    merged_confidence: dict[int, float] = {}
-    merged_corners: dict[int, np.ndarray] = {}
-    attempts = 0
-
-    for votes, best_confidence, best_corners, run_attempts in runs:
-        merged_votes.update(votes)
-        attempts += run_attempts
-        for marker_id, conf in best_confidence.items():
-            if conf > merged_confidence.get(marker_id, 0.0):
-                merged_confidence[marker_id] = conf
-                if marker_id in best_corners:
-                    merged_corners[marker_id] = best_corners[marker_id]
-
-    return merged_votes, merged_confidence, merged_corners, attempts
-
-
-def _collect_detections_with_flip(
+def _detect_with_flip(
     image: np.ndarray,
     dictionary_name: str,
-) -> tuple[Counter, dict[int, float], dict[int, np.ndarray], int, bool | None]:
-    """Detect on original and horizontally flipped image (ESP32-CAM mirror fix)."""
-    normal = _collect_detections(image, dictionary_name)
+) -> tuple[int | None, float, dict[int, int], dict[int, float], int, bool | None]:
+    """Try normal and horizontally flipped image; pick highest-confidence hit."""
+    normal_id, normal_conf, normal_attempts = _best_detection_in_image(
+        image, dictionary_name
+    )
     flipped_image = cv2.flip(image, 1)
-    flipped = _collect_detections(flipped_image, dictionary_name)
-    votes, best_confidence, best_corners, attempts = _merge_detection_runs(
-        [normal, flipped]
+    flipped_id, flipped_conf, flipped_attempts = _best_detection_in_image(
+        flipped_image, dictionary_name
     )
+    attempts = normal_attempts + flipped_attempts
 
-    used_flip: bool | None = None
-    if votes:
-        winner = max(
-            votes.keys(),
-            key=lambda marker_id: (votes[marker_id], best_confidence.get(marker_id, 0.0)),
-        )
-        normal_votes = normal[0].get(winner, 0)
-        flipped_votes = flipped[0].get(winner, 0)
-        if flipped_votes > normal_votes:
-            used_flip = True
-        elif normal_votes > flipped_votes:
-            used_flip = False
+    votes: dict[int, int] = {}
+    best_confidence: dict[int, float] = {}
+    for marker_id, conf in ((normal_id, normal_conf), (flipped_id, flipped_conf)):
+        if marker_id is None:
+            continue
+        votes[marker_id] = votes.get(marker_id, 0) + 1
+        best_confidence[marker_id] = max(best_confidence.get(marker_id, 0.0), conf)
 
-    return votes, best_confidence, best_corners, attempts, used_flip
+    if normal_conf >= flipped_conf:
+        winner_id, confidence, used_flip = normal_id, normal_conf, False if flipped_id else None
+    else:
+        winner_id, confidence, used_flip = flipped_id, flipped_conf, True
 
+    if winner_id is None:
+        used_flip = None
 
-def _pick_winner(
-    votes: Counter,
-    best_confidence: dict[int, float],
-) -> tuple[int | None, float]:
-    if not votes:
-        return None, 0.0
-
-    ranked = sorted(
-        votes.keys(),
-        key=lambda marker_id: (votes[marker_id], best_confidence.get(marker_id, 0.0)),
-        reverse=True,
-    )
-    winner = ranked[0]
-    conf = best_confidence.get(winner, 0.0)
-    vote_count = votes[winner]
-
-    if vote_count >= MIN_VOTES or conf >= HIGH_CONFIDENCE:
-        return winner, conf
-
-    logger.debug(
-        "Rejected weak ArUco candidate id=%s votes=%s confidence=%s",
-        winner,
-        vote_count,
-        conf,
-    )
-    return None, 0.0
+    return winner_id, confidence, votes, best_confidence, attempts, used_flip
 
 
 def _match_fleet(aruco_id: int, fleet: list[dict]) -> int | None:
@@ -244,33 +165,32 @@ def analyze_image_with_debug(
     if image is None or image.size == 0:
         return ArucoResult(False, None, None, 0.0), ArucoDebugInfo()
 
-    votes, best_confidence, _best_corners, attempts, used_flip = (
-        _collect_detections_with_flip(image, dictionary_name)
+    winner_id, confidence, votes, best_confidence, attempts, used_flip = (
+        _detect_with_flip(image, dictionary_name)
     )
     debug = ArucoDebugInfo(
-        votes=dict(votes),
+        votes=votes,
         best_confidence=best_confidence,
         attempts=attempts,
         used_flip=used_flip,
     )
 
-    winner_id, confidence = _pick_winner(votes, best_confidence)
-    if winner_id is None:
+    if winner_id is None or confidence < OCCUPIED_CONFIDENCE_THRESHOLD:
         logger.info(
-            "No ArUco marker accepted (dictionary=%s votes=%s attempts=%s flip=%s)",
+            "Bay empty or below confidence threshold (dictionary=%s id=%s confidence=%s threshold=%s flip=%s)",
             dictionary_name,
-            dict(votes),
-            attempts,
+            winner_id,
+            confidence,
+            OCCUPIED_CONFIDENCE_THRESHOLD,
             used_flip,
         )
-        return ArucoResult(False, None, None, 0.0), debug
+        return ArucoResult(False, None, None, round(float(confidence), 3)), debug
 
     car_number = _match_fleet(winner_id, fleet)
     if car_number is None:
         logger.info(
-            "ArUco id=%s detected but not in fleet (votes=%s confidence=%s)",
+            "ArUco id=%s detected but not in fleet (confidence=%s)",
             winner_id,
-            votes[winner_id],
             confidence,
         )
 
@@ -278,7 +198,5 @@ def analyze_image_with_debug(
         occupied=True,
         car_number=car_number,
         aruco_id_detected=winner_id,
-        confidence=float(
-            confidence if car_number is not None else round(confidence * 0.5, 3)
-        ),
+        confidence=round(float(confidence), 3),
     ), debug

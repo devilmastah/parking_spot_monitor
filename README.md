@@ -124,7 +124,7 @@ Open the add-on Web UI:
 - Add each car in **Fleet** with the same ArUco ID printed on its marker
 - If the dashboard shows **Unknown marker (ID n)** the marker was seen but that ID is not in Fleet
 - Good lighting helps; enable `flash_before_capture: true` only for dark bays
-- Empty bay = **no marker detected** → occupied OFF
+- Empty bay = **no marker detected** or confidence **below 50%** → occupied OFF
 
 ## Development
 
