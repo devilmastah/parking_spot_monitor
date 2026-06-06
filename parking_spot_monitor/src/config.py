@@ -24,7 +24,13 @@ class Settings:
         default_factory=lambda: os.getenv("FLASH_BEFORE_CAPTURE", "true").lower() == "true"
     )
     prepare_capture_wait_ms: int = field(
-        default_factory=lambda: int(os.getenv("PREPARE_CAPTURE_WAIT_MS", "600"))
+        default_factory=lambda: int(os.getenv("PREPARE_CAPTURE_WAIT_MS", "2000"))
+    )
+    snapshot_max_attempts: int = field(
+        default_factory=lambda: int(os.getenv("SNAPSHOT_MAX_ATTEMPTS", "3"))
+    )
+    snapshot_retry_delay_seconds: int = field(
+        default_factory=lambda: int(os.getenv("SNAPSHOT_RETRY_DELAY", "5"))
     )
     aruco_dictionary: str = field(
         default_factory=lambda: os.getenv("ARUCO_DICTIONARY", "DICT_4X4_50")
