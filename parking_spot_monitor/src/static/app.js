@@ -351,10 +351,33 @@ async function loadSettings() {
 }
 
 document.getElementById("import-addon-bays").addEventListener("click", async () => {
-  const imported = await api("/import-addon-bays", { method: "POST" });
-  alert(`Imported ${imported.length} bay(s)`);
+  const result = await api("/import-addon-bays", { method: "POST" });
+  const mqtt = result.mqtt || {};
+  alert(
+    `Imported ${result.bays?.length ?? 0} bay(s)` +
+      (mqtt.published ? `\nMQTT discovery published for ${mqtt.published} bay(s).` : mqtt.error ? `\nMQTT: ${mqtt.error}` : "")
+  );
   loadBayConfig();
   loadDashboard();
+});
+
+document.getElementById("mqtt-publish").addEventListener("click", async () => {
+  const btn = document.getElementById("mqtt-publish");
+  btn.disabled = true;
+  btn.textContent = "Publishing…";
+  try {
+    const result = await api("/mqtt/publish", { method: "POST" });
+    if (result.error) {
+      alert("MQTT publish failed: " + result.error);
+    } else {
+      alert(`Published MQTT discovery for ${result.published} bay(s).\n\nCheck Settings → Devices & services → MQTT.`);
+    }
+  } catch (err) {
+    alert("MQTT publish failed: " + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Publish MQTT discovery";
+  }
 });
 
 function showModal(title, fields, onConfirm) {

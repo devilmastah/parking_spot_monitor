@@ -16,7 +16,7 @@ from src.analyzer import analyze_all_bays, sync_addon_bays
 from src.api import router as api_router
 from src.config import settings
 from src.database import db
-from src.mqtt_publisher import mqtt_publisher
+from src.mqtt_publisher import mqtt_publisher, publish_all_bays_mqtt
 
 logging.basicConfig(
     level=logging.INFO,
@@ -42,6 +42,11 @@ async def lifespan(app: FastAPI):
     await db.init()
     await sync_addon_bays()
     mqtt_publisher.connect()
+    mqtt_result = await publish_all_bays_mqtt()
+    if mqtt_result.get("published"):
+        logger.info("MQTT startup publish: %s bay(s)", mqtt_result["published"])
+    elif mqtt_result.get("error"):
+        logger.warning("MQTT startup publish skipped: %s", mqtt_result["error"])
 
     scheduler.add_job(
         _scheduled_analysis,

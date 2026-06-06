@@ -127,6 +127,19 @@ Open the add-on Web UI:
 | `no` | Spot empty, or a different car/marker is present |
 | `uncertain` | No expected car configured for this bay, or expected car not in Fleet |
 
+### MQTT troubleshooting
+
+Discovery uses Home Assistant's standard MQTT auto-discovery (`homeassistant/.../config` topics).
+
+1. **MQTT integration** must be set up in HA (**Settings → Devices & services → MQTT**) and connected to the same broker (`core-mosquitto`).
+2. **At least one bay** must be configured (add-on config or Web UI → Import bays).
+3. After updating, **restart the add-on** — discovery is published on startup (v2.3.2+).
+4. Or use **Settings → Publish MQTT discovery** in the Web UI.
+5. Look for a device named **Parking Bay 1** (etc.) under the MQTT integration.
+6. If Mosquitto requires login, set `mqtt_username` / `mqtt_password` in add-on config (create a user in the Mosquitto add-on or use your HA MQTT credentials).
+
+Entity topics: `parking_spot/<bay_id>/occupied`, `.../correct_car`, etc.
+
 ## Marker tips
 
 - Use **DICT_4X4_50** for up to 50 cars (IDs 0–49)

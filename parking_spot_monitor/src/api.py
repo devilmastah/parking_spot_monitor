@@ -236,6 +236,15 @@ async def upload_snapshot(bay_id: str, file: UploadFile = File(...)):
 @router.post("/import-addon-bays")
 async def import_addon_bays():
     from src.analyzer import sync_addon_bays
+    from src.mqtt_publisher import publish_all_bays_mqtt
 
     await sync_addon_bays()
-    return await db.list_bays()
+    bays = await db.list_bays()
+    mqtt = await publish_all_bays_mqtt()
+    return {"bays": bays, "mqtt": mqtt}
+
+
+@router.post("/mqtt/publish")
+async def mqtt_publish():
+    """Re-send Home Assistant MQTT discovery for all bays."""
+    return await publish_all_bays_mqtt()

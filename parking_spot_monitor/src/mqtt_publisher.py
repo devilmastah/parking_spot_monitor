@@ -114,11 +114,15 @@ class MQTTPublisher:
 
         for cfg in configs:
             platform = cfg.pop("platform")
-            topic = f"homeassistant/{platform}/{unique}/{cfg['unique_id']}/config"
-            self.client.publish(topic, json.dumps(cfg), retain=True)
+            object_id = cfg["unique_id"].removeprefix(f"parking_{unique}_")
+            cfg["object_id"] = object_id
+            topic = f"homeassistant/{platform}/{unique}/{object_id}/config"
+            info = self.client.publish(topic, json.dumps(cfg), retain=True)
+            if info.rc != 0:
+                logger.warning("MQTT discovery publish failed for %s rc=%s", topic, info.rc)
 
         self.discovered_bays.add(bay_id)
-        logger.debug("Published MQTT discovery for bay %s", bay_id)
+        logger.info("Published MQTT discovery for bay %s (%s entities)", bay_name, len(configs))
 
     def publish_bay_state(
         self,
@@ -171,6 +175,38 @@ class MQTTPublisher:
             ),
             retain=True,
         )
+
+
+async def publish_all_bays_mqtt() -> dict:
+    """Publish HA MQTT discovery and last-known state for every configured bay."""
+    from src.database import db
+
+    if not settings.mqtt_enabled:
+        return {"published": 0, "error": "MQTT disabled"}
+
+    if not mqtt_publisher.client:
+        return {"published": 0, "error": "MQTT not connected"}
+
+    rows = await db.list_dashboard()
+    if not rows:
+        logger.info("MQTT: no bays configured — nothing to publish")
+        return {"published": 0, "error": "No bays configured"}
+
+    for row in rows:
+        has_result = row.get("analyzed_at") is not None
+        mqtt_publisher.publish_bay_state(
+            bay_id=row["bay_id"],
+            bay_name=row["bay_name"],
+            occupied=bool(row.get("occupied")) if has_result else False,
+            car_number=row.get("car_number") if has_result else None,
+            aruco_id_detected=row.get("aruco_id_detected") if has_result else None,
+            confidence=float(row.get("confidence") or 0.0) if has_result else 0.0,
+            correct_car=row.get("correct_car") or "uncertain",
+            expected_car_number=row.get("expected_car_number"),
+        )
+
+    logger.info("MQTT: published discovery + state for %s bay(s)", len(rows))
+    return {"published": len(rows), "bays": [r["bay_id"] for r in rows]}
 
 
 mqtt_publisher = MQTTPublisher()
