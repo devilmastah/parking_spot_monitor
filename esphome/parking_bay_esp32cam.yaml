@@ -34,9 +34,10 @@ esp32:
   framework:
     type: arduino
 
+# AI-Thinker ESP32-CAM uses classic ESP32 + quad PSRAM (not octal — octal is ESP32-S3 only).
+# If your board has NO PSRAM, comment out the entire psram: block and use camera_resolution: 640x480
 psram:
-  mode: octal
-  speed: 80MHz
+  mode: quad
 
 logger:
   level: INFO

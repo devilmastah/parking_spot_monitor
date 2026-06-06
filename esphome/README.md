@@ -55,16 +55,28 @@ Manual test in HA: **Developer tools → Services → `script.turn_on`** with en
 
 Double-flash for install/debug.
 
+## PSRAM
+
+**AI-Thinker ESP32-CAM** (classic ESP32): use `mode: quad` — already set in the YAML.
+
+**Octal** PSRAM is for **ESP32-S3** boards only; it will fail to compile on ESP32-CAM.
+
+If your module has **no PSRAM** (cheaper clones), comment out the whole `psram:` block and lower resolution:
+
+```yaml
+camera_resolution: 640x480
+```
+
 ## Resolution
 
-Default `800x600` works well on AI-Thinker boards with PSRAM. If images are soft, try in substitutions:
+Default `800x600` works well on AI-Thinker boards with quad PSRAM. If images are soft, try:
 
 ```yaml
 camera_resolution: 1024x768
 camera_jpeg_quality: "10"
 ```
 
-If the device crashes or reboots on capture, lower resolution or increase power supply quality (ESP32-CAM is sensitive to 5 V sag).
+If the device crashes or reboots on capture, lower resolution or improve the 5 V power supply (ESP32-CAM is sensitive to voltage sag).
 
 ## Parking Spot Monitor add-on
 
