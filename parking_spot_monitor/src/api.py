@@ -95,29 +95,46 @@ async def list_bays():
     return await db.list_bays()
 
 
+def _bay_id_from_entity(camera_entity_id: str) -> str:
+    return camera_entity_id.replace(".", "_").replace(" ", "_").lower()
+
+
 @router.post("/bays")
 async def create_bay(body: BayIn):
-    bay_id = body.camera_entity_id.replace(".", "_").replace(" ", "_").lower()
-    result = await db.upsert_bay(
-        bay_id,
-        body.name,
-        body.camera_entity_id,
-        body.sort_order,
-        expected_car_number=body.expected_car_number,
-    )
+    camera_entity_id = body.camera_entity_id.strip()
+    if not camera_entity_id:
+        raise HTTPException(400, "Camera entity ID is required")
+    bay_id = _bay_id_from_entity(camera_entity_id)
+    try:
+        result = await db.create_bay(
+            bay_id,
+            body.name.strip() or camera_entity_id,
+            camera_entity_id,
+            body.sort_order,
+            expected_car_number=body.expected_car_number,
+        )
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
     await _after_bay_saved(bay_id)
     return result
 
 
 @router.put("/bays/{bay_id}")
 async def update_bay(bay_id: str, body: BayIn):
-    result = await db.upsert_bay(
-        bay_id,
-        body.name,
-        body.camera_entity_id,
-        body.sort_order,
-        expected_car_number=body.expected_car_number,
-    )
+    camera_entity_id = body.camera_entity_id.strip()
+    if not camera_entity_id:
+        raise HTTPException(400, "Camera entity ID is required")
+    try:
+        result = await db.update_bay(
+            bay_id,
+            body.name.strip() or camera_entity_id,
+            camera_entity_id,
+            body.sort_order,
+            expected_car_number=body.expected_car_number,
+        )
+    except ValueError as exc:
+        status = 404 if "not found" in str(exc).lower() else 409
+        raise HTTPException(status, str(exc)) from exc
     await _after_bay_saved(bay_id)
     return result
 

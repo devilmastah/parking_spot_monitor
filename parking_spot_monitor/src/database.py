@@ -146,6 +146,79 @@ class Database:
             "expected_car_number": expected_car_number,
         }
 
+    async def create_bay(
+        self,
+        bay_id: str,
+        name: str,
+        camera_entity_id: str,
+        sort_order: int = 0,
+        expected_car_number: int | None = None,
+    ) -> dict:
+        """Insert a new bay — fails if id or camera entity already exists."""
+        async with self.connect() as db:
+            try:
+                await db.execute(
+                    """
+                    INSERT INTO bays (id, name, camera_entity_id, sort_order, expected_car_number, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (bay_id, name, camera_entity_id, sort_order, expected_car_number, _now()),
+                )
+                await db.commit()
+            except aiosqlite.IntegrityError as exc:
+                message = str(exc).lower()
+                if "camera_entity_id" in message:
+                    raise ValueError(
+                        f"Camera {camera_entity_id} is already assigned to another bay"
+                    ) from exc
+                if "id" in message or "primary key" in message:
+                    raise ValueError(
+                        f"A bay already exists for camera {camera_entity_id}"
+                    ) from exc
+                raise ValueError(f"Could not create bay: {exc}") from exc
+        return {
+            "id": bay_id,
+            "name": name,
+            "camera_entity_id": camera_entity_id,
+            "sort_order": sort_order,
+            "expected_car_number": expected_car_number,
+        }
+
+    async def update_bay(
+        self,
+        bay_id: str,
+        name: str,
+        camera_entity_id: str,
+        sort_order: int = 0,
+        expected_car_number: int | None = None,
+    ) -> dict:
+        async with self.connect() as db:
+            try:
+                cur = await db.execute(
+                    """
+                    UPDATE bays
+                    SET name = ?, camera_entity_id = ?, sort_order = ?, expected_car_number = ?
+                    WHERE id = ?
+                    """,
+                    (name, camera_entity_id, sort_order, expected_car_number, bay_id),
+                )
+                if cur.rowcount == 0:
+                    raise ValueError(f"Bay not found: {bay_id}")
+                await db.commit()
+            except aiosqlite.IntegrityError as exc:
+                if "camera_entity_id" in str(exc).lower():
+                    raise ValueError(
+                        f"Camera {camera_entity_id} is already assigned to another bay"
+                    ) from exc
+                raise ValueError(f"Could not update bay: {exc}") from exc
+        return {
+            "id": bay_id,
+            "name": name,
+            "camera_entity_id": camera_entity_id,
+            "sort_order": sort_order,
+            "expected_car_number": expected_car_number,
+        }
+
     async def delete_bay(self, bay_id: str) -> None:
         async with self.connect() as db:
             await db.execute("DELETE FROM bays WHERE id = ?", (bay_id,))

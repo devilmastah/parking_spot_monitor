@@ -291,7 +291,12 @@ function buildFleetOptions(selected) {
 
 async function openBayModal(bay = null) {
   state.fleet = await api("/fleet");
+  if (!bay) {
+    state.bays = await api("/bays");
+  }
   const isEdit = bay != null;
+  const nextIndex = state.bays.length;
+  const defaultEntity = `camera.parking_bay_${nextIndex + 1}`;
   showModal(
     isEdit ? "Edit parking bay" : "Add parking bay",
     [
@@ -299,15 +304,17 @@ async function openBayModal(bay = null) {
         id: "bay-name",
         label: "Bay name",
         type: "text",
-        placeholder: "Bay 1",
+        placeholder: `Bay ${nextIndex + 1}`,
         value: bay?.name ?? "",
       },
       {
         id: "bay-entity",
         label: "Camera entity ID",
         type: "text",
-        placeholder: "camera.parking_bay_1",
-        hint: "Home Assistant camera entity for this ESP32-CAM.",
+        placeholder: defaultEntity,
+        hint: isEdit
+          ? "Home Assistant camera entity for this ESP32-CAM. Must be unique per bay."
+          : `Must match your ESP32 camera in HA (e.g. ${defaultEntity}). Each bay needs a different camera.`,
         value: bay?.camera_entity_id ?? "",
       },
       {
@@ -323,25 +330,34 @@ async function openBayModal(bay = null) {
         type: "number",
         placeholder: "0",
         hint: "Order when Analyze all runs: 0 = first snapshot, 1 = second, etc.",
-        value: bay?.sort_order ?? 0,
+        value: bay?.sort_order ?? nextIndex,
       },
     ],
     async () => {
       const expectedVal = document.getElementById("bay-expected").value;
+      const cameraEntity = document.getElementById("bay-entity").value.trim();
+      if (!cameraEntity) {
+        alert("Camera entity ID is required.");
+        return;
+      }
       const body = {
-        name: document.getElementById("bay-name").value,
-        camera_entity_id: document.getElementById("bay-entity").value,
+        name: document.getElementById("bay-name").value.trim() || cameraEntity,
+        camera_entity_id: cameraEntity,
         sort_order: parseInt(document.getElementById("bay-order").value || "0", 10),
         expected_car_number: expectedVal === "" ? null : parseInt(expectedVal, 10),
       };
-      if (isEdit) {
-        await api(`/bays/${bay.id}`, { method: "PUT", body: JSON.stringify(body) });
-      } else {
-        await api("/bays", { method: "POST", body: JSON.stringify(body) });
+      try {
+        if (isEdit) {
+          await api(`/bays/${bay.id}`, { method: "PUT", body: JSON.stringify(body) });
+        } else {
+          await api("/bays", { method: "POST", body: JSON.stringify(body) });
+        }
+        hideModal();
+        loadBayConfig();
+        loadDashboard();
+      } catch (err) {
+        alert(isEdit ? "Could not update bay: " : "Could not add bay: " + err.message);
       }
-      hideModal();
-      loadBayConfig();
-      loadDashboard();
     }
   );
 }
