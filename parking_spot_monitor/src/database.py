@@ -1,5 +1,6 @@
 """SQLite persistence for parking bays, fleet, and analysis results."""
 
+import logging
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -7,6 +8,8 @@ from datetime import datetime, timezone
 import aiosqlite
 
 from src.config import settings
+
+logger = logging.getLogger(__name__)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS bays (
@@ -67,6 +70,38 @@ class Database:
                 "ALTER TABLE bay_states ADD COLUMN correct_car TEXT NOT NULL DEFAULT 'uncertain'"
             )
 
+        await self._migrate_fleet_table(db)
+
+    async def _migrate_fleet_table(self, db) -> None:
+        """Upgrade v1 fleet (license_plate) to v2+ fleet (aruco_id)."""
+        cur = await db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='fleet'"
+        )
+        if not await cur.fetchone():
+            return
+
+        cur = await db.execute("PRAGMA table_info(fleet)")
+        cols = {row[1] for row in await cur.fetchall()}
+        if "aruco_id" in cols:
+            return
+
+        if "license_plate" not in cols:
+            logger.warning("Unknown fleet table schema %s — recreating", cols)
+        else:
+            logger.info("Migrating fleet table from v1 (license plates) to ArUco schema")
+
+        await db.execute("DROP TABLE fleet")
+        await db.execute(
+            """
+            CREATE TABLE fleet (
+                car_number INTEGER PRIMARY KEY,
+                aruco_id INTEGER NOT NULL UNIQUE,
+                notes TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+
     @asynccontextmanager
     async def connect(self):
         db = await aiosqlite.connect(self.path)
@@ -124,17 +159,29 @@ class Database:
 
     async def upsert_fleet_car(self, car_number: int, aruco_id: int, notes: str = "") -> dict:
         async with self.connect() as db:
-            await db.execute(
-                """
-                INSERT INTO fleet (car_number, aruco_id, notes, created_at)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(car_number) DO UPDATE SET
-                    aruco_id=excluded.aruco_id,
-                    notes=excluded.notes
-                """,
-                (car_number, aruco_id, notes, _now()),
-            )
-            await db.commit()
+            try:
+                await db.execute(
+                    """
+                    INSERT INTO fleet (car_number, aruco_id, notes, created_at)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(car_number) DO UPDATE SET
+                        aruco_id=excluded.aruco_id,
+                        notes=excluded.notes
+                    """,
+                    (car_number, aruco_id, notes, _now()),
+                )
+                await db.commit()
+            except aiosqlite.IntegrityError as exc:
+                message = str(exc).lower()
+                if "aruco_id" in message:
+                    raise ValueError(
+                        f"ArUco ID {aruco_id} is already assigned to another car"
+                    ) from exc
+                if "car_number" in message:
+                    raise ValueError(
+                        f"Car number {car_number} already exists"
+                    ) from exc
+                raise ValueError(f"Fleet entry conflict: {exc}") from exc
         return {"car_number": car_number, "aruco_id": aruco_id, "notes": notes}
 
     async def delete_fleet_car(self, car_number: int) -> None:

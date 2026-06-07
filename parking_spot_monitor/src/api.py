@@ -1,5 +1,6 @@
 """FastAPI routes."""
 
+import logging
 import os
 import uuid
 
@@ -18,6 +19,7 @@ from src.database import db
 from src.ha_client import ha_client
 
 router = APIRouter(prefix="/api")
+logger = logging.getLogger(__name__)
 
 
 def _snapshot_url(path: str | None) -> str | None:
@@ -151,7 +153,13 @@ async def list_fleet():
 
 @router.post("/fleet")
 async def upsert_fleet(body: FleetIn):
-    return await db.upsert_fleet_car(body.car_number, body.aruco_id, body.notes)
+    try:
+        return await db.upsert_fleet_car(body.car_number, body.aruco_id, body.notes)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Failed to save fleet car %s", body.car_number)
+        raise HTTPException(500, f"Could not save fleet car: {exc}") from exc
 
 
 @router.delete("/fleet/{car_number}")
