@@ -2,6 +2,7 @@
 
 import logging
 import os
+import re
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
@@ -10,6 +11,14 @@ import aiosqlite
 from src.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _slug_id(text: str) -> str:
+    return text.replace(".", "_").replace(" ", "_").lower()
+
+
+def _slug_name(name: str) -> str:
+    return re.sub(r"[^a-z0-9_]+", "_", name.lower()).strip("_")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS bays (
@@ -74,29 +83,45 @@ class Database:
         await self._migrate_bay_ids(db)
 
     async def _migrate_bay_ids(self, db) -> None:
-        """Fill missing bay ids from camera_entity_id (legacy imports)."""
-        cur = await db.execute("SELECT id, camera_entity_id FROM bays")
-        for row in await cur.fetchall():
-            old_id = (row[0] or "").strip()
-            camera = (row[1] or "").strip()
-            if not camera:
-                continue
-            new_id = camera.replace(".", "_").replace(" ", "_").lower()
+        await self._repair_bay_ids_in_tx(db)
+
+    async def _repair_bay_ids_in_tx(self, db) -> int:
+        """Assign ids to legacy rows (empty id) using camera, name, or rowid."""
+        cur = await db.execute(
+            "SELECT rowid, id, camera_entity_id, name FROM bays ORDER BY rowid"
+        )
+        repaired = 0
+        for rowid, old_id, camera, name in await cur.fetchall():
+            old_id = (old_id or "").strip()
             if old_id:
                 continue
-            logger.info("Migrating bay id for camera %s → %s", camera, new_id)
+            camera = (camera or "").strip()
+            name = (name or "").strip()
+            if camera:
+                new_id = _slug_id(camera)
+            elif name:
+                new_id = _slug_name(name) or f"bay_{rowid}"
+            else:
+                new_id = f"bay_{rowid}"
+            logger.info("Repairing bay id rowid=%s name=%r camera=%r → %s", rowid, name, camera, new_id)
+            await db.execute("UPDATE bays SET id = ? WHERE rowid = ?", (new_id, rowid))
+            if old_id:
+                await db.execute(
+                    "UPDATE bay_states SET bay_id = ? WHERE bay_id = ?",
+                    (new_id, old_id),
+                )
+            repaired += 1
+        if repaired:
             await db.execute(
-                "UPDATE bay_states SET bay_id = ? WHERE bay_id = ?",
-                (new_id, old_id),
+                "DELETE FROM bay_states WHERE bay_id = '' OR bay_id IS NULL"
             )
-            await db.execute(
-                """
-                UPDATE bays
-                SET id = ?
-                WHERE camera_entity_id = ? AND (id IS NULL OR id = '')
-                """,
-                (new_id, camera),
-            )
+        return repaired
+
+    async def repair_all_bay_ids(self) -> int:
+        async with self.connect() as db:
+            repaired = await self._repair_bay_ids_in_tx(db)
+            await db.commit()
+            return repaired
 
     async def _migrate_fleet_table(self, db) -> None:
         """Upgrade v1 fleet (license_plate) to v2+ fleet (aruco_id)."""
@@ -139,8 +164,61 @@ class Database:
 
     async def list_bays(self) -> list[dict]:
         async with self.connect() as db:
-            cur = await db.execute("SELECT * FROM bays ORDER BY sort_order, name")
+            cur = await db.execute(
+                """
+                SELECT rowid AS _rowid, id, name, camera_entity_id,
+                       sort_order, expected_car_number, created_at
+                FROM bays
+                ORDER BY sort_order, name
+                """
+            )
             return [dict(row) for row in await cur.fetchall()]
+
+    async def find_bay(self, bay_key: str) -> dict | None:
+        key = (bay_key or "").strip()
+        if not key:
+            return None
+        for bay in await self.list_bays():
+            stored_id = (bay.get("id") or "").strip()
+            camera = (bay.get("camera_entity_id") or "").strip()
+            rowid = bay.get("_rowid")
+            if key == stored_id:
+                return bay
+            if camera and key in (camera, _slug_id(camera)):
+                return bay
+            if rowid is not None and key == f"bay_{rowid}":
+                return bay
+        return None
+
+    async def ensure_bay_id(self, bay_key: str) -> str:
+        bay = await self.find_bay(bay_key)
+        if not bay:
+            raise ValueError(f"Bay not found: {bay_key}")
+        stored_id = (bay.get("id") or "").strip()
+        if stored_id:
+            return stored_id
+        async with self.connect() as db:
+            actual_id = await self._ensure_bay_id_in_tx(db, bay)
+            await db.commit()
+            return actual_id
+
+    async def _ensure_bay_id_in_tx(self, db, bay: dict) -> str:
+        stored_id = (bay.get("id") or "").strip()
+        if stored_id:
+            return stored_id
+        rowid = bay.get("_rowid")
+        camera = (bay.get("camera_entity_id") or "").strip()
+        name = (bay.get("name") or "").strip()
+        if camera:
+            new_id = _slug_id(camera)
+        elif name:
+            new_id = _slug_name(name) or (f"bay_{rowid}" if rowid else "bay_unknown")
+        elif rowid is not None:
+            new_id = f"bay_{rowid}"
+        else:
+            raise ValueError("Bay has no id, camera, or rowid — cannot repair")
+        await db.execute("UPDATE bays SET id = ? WHERE rowid = ?", (new_id, rowid))
+        return new_id
 
     async def upsert_bay(
         self,
@@ -212,25 +290,30 @@ class Database:
 
     async def update_bay(
         self,
-        bay_id: str,
+        bay_key: str,
         name: str,
         camera_entity_id: str,
         sort_order: int = 0,
         expected_car_number: int | None = None,
     ) -> dict:
+        bay = await self.find_bay(bay_key)
+        if not bay:
+            raise ValueError(f"Bay not found: {bay_key}")
         async with self.connect() as db:
             try:
+                actual_id = await self._ensure_bay_id_in_tx(db, bay)
                 cur = await db.execute(
                     """
                     UPDATE bays
                     SET name = ?, camera_entity_id = ?, sort_order = ?, expected_car_number = ?
                     WHERE id = ?
                     """,
-                    (name, camera_entity_id, sort_order, expected_car_number, bay_id),
+                    (name, camera_entity_id, sort_order, expected_car_number, actual_id),
                 )
                 if cur.rowcount == 0:
-                    raise ValueError(f"Bay not found: {bay_id}")
+                    raise ValueError(f"Bay not found: {bay_key}")
                 await db.commit()
+                bay_id = actual_id
             except aiosqlite.IntegrityError as exc:
                 if "camera_entity_id" in str(exc).lower():
                     raise ValueError(
@@ -245,10 +328,23 @@ class Database:
             "expected_car_number": expected_car_number,
         }
 
-    async def delete_bay(self, bay_id: str) -> None:
+    async def delete_bay(self, bay_key: str) -> None:
+        bay = await self.find_bay(bay_key)
+        if not bay:
+            raise ValueError(f"Bay not found: {bay_key}")
         async with self.connect() as db:
-            await db.execute("DELETE FROM bays WHERE id = ?", (bay_id,))
-            await db.execute("DELETE FROM bay_states WHERE bay_id = ?", (bay_id,))
+            stored_id = (bay.get("id") or "").strip()
+            rowid = bay.get("_rowid")
+            if stored_id:
+                await db.execute("DELETE FROM bay_states WHERE bay_id = ?", (stored_id,))
+                await db.execute("DELETE FROM bays WHERE id = ?", (stored_id,))
+            elif rowid is not None:
+                await db.execute(
+                    "DELETE FROM bay_states WHERE bay_id = '' OR bay_id IS NULL"
+                )
+                await db.execute("DELETE FROM bays WHERE rowid = ?", (rowid,))
+            else:
+                raise ValueError(f"Bay not found: {bay_key}")
             await db.commit()
 
     async def list_fleet(self) -> list[dict]:

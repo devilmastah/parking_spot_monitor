@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Parking Spot Monitor</title>
   <script>window.INGRESS_PREFIX = {{ ingress_path|tojson }};</script>
-  <link rel="stylesheet" href="{{ (ingress_path + '/static/style.css?v=2.4.3') if ingress_path else 'static/style.css?v=2.4.3' }}">
+  <link rel="stylesheet" href="{{ (ingress_path + '/static/style.css?v=2.4.4') if ingress_path else 'static/style.css?v=2.4.4' }}">
 </head>
 <body>
   <header>
@@ -68,6 +68,9 @@
     </section>
 
     <section id="tab-settings" class="panel">
+      <h2>Bay database</h2>
+      <p class="hint">If Edit or Delete fails on older bays, repair assigns missing IDs from the camera entity or bay name.</p>
+      <button id="repair-bays" class="btn">Repair bay database</button>
       <h2>Import from add-on config</h2>
       <button id="import-addon-bays" class="btn primary">Import bays from add-on config</button>
       <h2>Home Assistant MQTT</h2>
@@ -89,6 +92,6 @@
     </div>
   </div>
 
-  <script src="{{ (ingress_path + '/static/app.js?v=2.4.3') if ingress_path else 'static/app.js?v=2.4.3' }}"></script>
+  <script src="{{ (ingress_path + '/static/app.js?v=2.4.4') if ingress_path else 'static/app.js?v=2.4.4' }}"></script>
 </body>
 </html>

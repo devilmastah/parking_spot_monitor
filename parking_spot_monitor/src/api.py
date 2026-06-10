@@ -64,8 +64,8 @@ class ExpectedCarIn(BaseModel):
     expected_car_number: int | None = None
 
 
-async def _get_bay_or_404(bay_id: str) -> dict:
-    bay = next((b for b in await db.list_bays() if b["id"] == bay_id), None)
+async def _get_bay_or_404(bay_key: str) -> dict:
+    bay = await db.find_bay(bay_key)
     if not bay:
         raise HTTPException(404, "Bay not found")
     return bay
@@ -106,7 +106,16 @@ def _normalize_bay_row(row: dict) -> dict:
 
 @router.get("/bays")
 async def list_bays():
+    await db.repair_all_bay_ids()
     return [_normalize_bay_row(row) for row in await db.list_bays()]
+
+
+@router.post("/bays/repair")
+async def repair_bays():
+    """Assign missing bay ids from camera entity, name, or rowid."""
+    repaired = await db.repair_all_bay_ids()
+    bays = [_normalize_bay_row(row) for row in await db.list_bays()]
+    return {"repaired": repaired, "bays": bays}
 
 
 @router.post("/bays")
@@ -163,14 +172,15 @@ async def save_bay(bay_id: str, body: BayIn):
 async def set_expected_car(bay_id: str, body: ExpectedCarIn):
     """Assign which fleet car should park in this bay."""
     bay = await _get_bay_or_404(bay_id)
+    actual_id = await db.ensure_bay_id(bay_id)
     result = await db.upsert_bay(
-        bay_id,
+        actual_id,
         bay["name"],
         bay["camera_entity_id"],
         bay["sort_order"],
         expected_car_number=body.expected_car_number,
     )
-    row = await refresh_bay_correct_car(bay_id)
+    row = await refresh_bay_correct_car(actual_id)
     return {
         **result,
         "correct_car": row.get("correct_car") if row else "uncertain",
@@ -184,13 +194,19 @@ async def set_expected_car_post(bay_id: str, body: ExpectedCarIn):
 
 @router.delete("/bays/{bay_id}")
 async def delete_bay(bay_id: str):
-    await db.delete_bay(bay_id)
+    try:
+        await db.delete_bay(bay_id)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
     return {"ok": True}
 
 
 @router.post("/bays/{bay_id}/delete")
 async def delete_bay_post(bay_id: str):
-    await db.delete_bay(bay_id)
+    try:
+        await db.delete_bay(bay_id)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
     return {"ok": True}
 
 

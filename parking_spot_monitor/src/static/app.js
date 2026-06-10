@@ -3,7 +3,12 @@ function slugFromCamera(entity) {
 }
 
 function getBayId(bay) {
-  return (bay?.id || bay?.bay_id || "").trim() || slugFromCamera(bay?.camera_entity_id);
+  const id = (bay?.id || bay?.bay_id || "").trim();
+  if (id) return id;
+  const camera = (bay?.camera_entity_id || "").trim();
+  if (camera) return slugFromCamera(camera);
+  if (bay?._rowid != null) return `bay_${bay._rowid}`;
+  return "";
 }
 
 /** Build URLs under the Ingress prefix (HA injects <base href="http://.../">). */
@@ -364,7 +369,7 @@ async function openBayModal(bay = null, explicitBayId = null) {
       try {
         if (isEdit) {
           if (!saveBayId) {
-            alert("This bay has no ID in the database. Delete it and add it again.");
+            alert("This bay could not be identified. Try Repair database in Settings, or delete and re-add.");
             return;
           }
           await api(`/bays/${encodeURIComponent(saveBayId)}`, {
@@ -391,10 +396,18 @@ function editBay(bayId) {
 }
 
 async function deleteBay(bayId) {
+  if (!bayId) {
+    alert("This bay could not be identified. Try Repair database in Settings.");
+    return;
+  }
   if (!confirm("Delete this bay?")) return;
-  await api(`/bays/${encodeURIComponent(bayId)}/delete`, { method: "POST" });
-  loadBayConfig();
-  loadDashboard();
+  try {
+    await api(`/bays/${encodeURIComponent(bayId)}/delete`, { method: "POST" });
+    loadBayConfig();
+    loadDashboard();
+  } catch (err) {
+    alert("Could not delete bay: " + err.message);
+  }
 }
 
 // ── Fleet ───────────────────────────────────────────────────────────────────
@@ -451,6 +464,27 @@ async function loadSettings() {
   state.system = await api("/status");
   document.getElementById("system-info").textContent = JSON.stringify(state.system, null, 2);
 }
+
+document.getElementById("repair-bays").addEventListener("click", async () => {
+  const btn = document.getElementById("repair-bays");
+  btn.disabled = true;
+  btn.textContent = "Repairing…";
+  try {
+    const result = await api("/bays/repair", { method: "POST" });
+    alert(
+      result.repaired
+        ? `Repaired ${result.repaired} bay(s). IDs were assigned from camera entity or bay name.`
+        : "All bays already have IDs."
+    );
+    loadBayConfig();
+    loadDashboard();
+  } catch (err) {
+    alert("Repair failed: " + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Repair bay database";
+  }
+});
 
 document.getElementById("import-addon-bays").addEventListener("click", async () => {
   const result = await api("/import-addon-bays", { method: "POST" });
