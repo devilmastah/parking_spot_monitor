@@ -78,6 +78,10 @@ class Database:
             await db.execute(
                 "ALTER TABLE bay_states ADD COLUMN correct_car TEXT NOT NULL DEFAULT 'uncertain'"
             )
+        if "car_parked_at" not in state_cols:
+            await db.execute("ALTER TABLE bay_states ADD COLUMN car_parked_at TEXT")
+        if "car_left_at" not in state_cols:
+            await db.execute("ALTER TABLE bay_states ADD COLUMN car_left_at TEXT")
 
         await self._migrate_fleet_table(db)
         await self._migrate_bay_ids(db)
@@ -393,14 +397,17 @@ class Database:
         confidence: float,
         snapshot_path: str | None,
         correct_car: str = "uncertain",
+        car_parked_at: str | None = None,
+        car_left_at: str | None = None,
     ) -> None:
         async with self.connect() as db:
             await db.execute(
                 """
                 INSERT INTO bay_states (
                     bay_id, occupied, car_number, aruco_id_detected,
-                    confidence, correct_car, analyzed_at, snapshot_path
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    confidence, correct_car, analyzed_at, snapshot_path,
+                    car_parked_at, car_left_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(bay_id) DO UPDATE SET
                     occupied=excluded.occupied,
                     car_number=excluded.car_number,
@@ -408,7 +415,9 @@ class Database:
                     confidence=excluded.confidence,
                     correct_car=excluded.correct_car,
                     analyzed_at=excluded.analyzed_at,
-                    snapshot_path=excluded.snapshot_path
+                    snapshot_path=excluded.snapshot_path,
+                    car_parked_at=excluded.car_parked_at,
+                    car_left_at=excluded.car_left_at
                 """,
                 (
                     bay_id,
@@ -419,6 +428,8 @@ class Database:
                     correct_car,
                     _now(),
                     snapshot_path,
+                    car_parked_at,
+                    car_left_at,
                 ),
             )
             await db.commit()
@@ -473,7 +484,9 @@ class Database:
                     s.confidence,
                     s.correct_car,
                     s.analyzed_at,
-                    s.snapshot_path
+                    s.snapshot_path,
+                    s.car_parked_at,
+                    s.car_left_at
                 FROM bays b
                 LEFT JOIN bay_states s ON s.bay_id = b.id
                 ORDER BY b.sort_order, b.name

@@ -110,6 +110,24 @@ class MQTTPublisher:
                 "device": device,
                 "icon": "mdi:car-arrow-right",
             },
+            {
+                "platform": "sensor",
+                "name": f"{bay_name} Car Parked At",
+                "unique_id": f"parking_{unique}_car_parked_at",
+                "state_topic": f"{prefix}/{bay_id}/car_parked_at",
+                "device_class": "timestamp",
+                "device": device,
+                "icon": "mdi:car-arrow-right",
+            },
+            {
+                "platform": "sensor",
+                "name": f"{bay_name} Car Left At",
+                "unique_id": f"parking_{unique}_car_left_at",
+                "state_topic": f"{prefix}/{bay_id}/car_left_at",
+                "device_class": "timestamp",
+                "device": device,
+                "icon": "mdi:car-arrow-left",
+            },
         ]
 
         for cfg in configs:
@@ -134,6 +152,8 @@ class MQTTPublisher:
         confidence: float,
         correct_car: str = "uncertain",
         expected_car_number: int | None = None,
+        car_parked_at: str | None = None,
+        car_left_at: str | None = None,
     ) -> None:
         if not self.client:
             return
@@ -162,6 +182,16 @@ class MQTTPublisher:
             retain=True,
         )
         self.client.publish(
+            self._topic(bay_id, "car_parked_at"),
+            car_parked_at or "",
+            retain=True,
+        )
+        self.client.publish(
+            self._topic(bay_id, "car_left_at"),
+            car_left_at or "",
+            retain=True,
+        )
+        self.client.publish(
             self._topic(bay_id, "state"),
             json.dumps(
                 {
@@ -171,6 +201,8 @@ class MQTTPublisher:
                     "confidence": confidence,
                     "correct_car": correct_car,
                     "expected_car_number": expected_car_number,
+                    "car_parked_at": car_parked_at,
+                    "car_left_at": car_left_at,
                 }
             ),
             retain=True,
@@ -189,6 +221,8 @@ def publish_dashboard_row_mqtt(row: dict, has_result: bool) -> None:
         confidence=float(row.get("confidence") or 0.0) if has_result else 0.0,
         correct_car=row.get("correct_car") or "uncertain",
         expected_car_number=row.get("expected_car_number"),
+        car_parked_at=row.get("car_parked_at") if has_result else None,
+        car_left_at=row.get("car_left_at") if has_result else None,
     )
 
 

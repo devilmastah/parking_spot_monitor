@@ -262,6 +262,7 @@ async def analyze_one(bay_id: str):
 async def analyze_one_debug(bay_id: str):
     """Re-analyze latest snapshot and return vote counts (for troubleshooting)."""
     from src.aruco import PreviousBayDetection, analyze_image_with_debug
+    from src.occupancy import is_dark_frame
 
     bays = {b["id"]: b for b in await db.list_bays()}
     bay = bays.get(bay_id)
@@ -280,6 +281,21 @@ async def analyze_one_debug(bay_id: str):
         raise HTTPException(500, f"Could not read snapshot: {path}")
 
     previous_row = await db.get_bay_state(bay_id)
+    if is_dark_frame(image) and previous_row and previous_row.get("analyzed_at"):
+        return {
+            "bay_id": bay_id,
+            "bay_name": bay["name"],
+            "snapshot_path": path,
+            "snapshot_url": _snapshot_url(path),
+            "dictionary": settings.aruco_dictionary,
+            "occupied": bool(previous_row.get("occupied")),
+            "car_number": previous_row.get("car_number"),
+            "aruco_id_detected": previous_row.get("aruco_id_detected"),
+            "confidence": float(previous_row.get("confidence") or 0),
+            "unchanged": True,
+            "debug": {"dark_frame": True, "unchanged": True},
+        }
+
     previous = None
     if previous_row:
         previous = PreviousBayDetection(

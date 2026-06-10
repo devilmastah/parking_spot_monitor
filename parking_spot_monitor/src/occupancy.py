@@ -9,6 +9,8 @@ import numpy as np
 CENTER_SLICE_WIDTH = 50
 # Fraction of slice pixels that must be red to treat the bay as occupied.
 RED_RATIO_OCCUPIED_THRESHOLD = 0.22
+# Mean grayscale brightness below this → lights off / unusable frame.
+DARK_FRAME_MEAN_THRESHOLD = 18.0
 
 
 @dataclass
@@ -57,3 +59,11 @@ def detect_occupied_by_color(image: np.ndarray) -> ColorOccupancyResult:
         red_ratio=round(red_ratio, 4),
         gray_ratio=round(gray_ratio, 4),
     )
+
+
+def is_dark_frame(image: np.ndarray) -> bool:
+    """True when the capture is too dark to classify (shop closed at night)."""
+    if image is None or image.size == 0:
+        return True
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if image.ndim == 3 else image
+    return float(gray.mean()) < DARK_FRAME_MEAN_THRESHOLD

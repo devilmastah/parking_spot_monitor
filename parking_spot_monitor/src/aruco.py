@@ -34,6 +34,8 @@ class ArucoResult:
     car_number: int | None
     aruco_id_detected: int | None
     confidence: float
+    unchanged: bool = False
+    dark_frame: bool = False
 
 
 @dataclass
@@ -56,6 +58,8 @@ class ArucoDebugInfo:
     red_ratio: float | None = None
     gray_ratio: float | None = None
     marker_sticky: bool = False
+    dark_frame: bool = False
+    unchanged: bool = False
 
 
 def _make_detector_params() -> cv2.aruco.DetectorParameters:

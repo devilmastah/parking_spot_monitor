@@ -134,6 +134,8 @@ function renderDashboard() {
       const img = bay.snapshot_url
         ? `<img src="${ingressUrl(bay.snapshot_url)}?t=${Date.now()}" alt="${bay.bay_name}">`
         : `<span class="no-image">No snapshot yet</span>`;
+      const parkedAt = bay.car_parked_at ? formatTime(bay.car_parked_at) : "—";
+      const leftAt = bay.car_left_at ? formatTime(bay.car_left_at) : "—";
 
       return `
       <article class="dash-card ${statusClass}" data-id="${bay.bay_id}">
@@ -149,6 +151,8 @@ function renderDashboard() {
             <div><span class="label">Detected car</span><strong>${bay.car_number ?? "—"}</strong></div>
             <div><span class="label">ArUco ID</span><strong>${bay.aruco_id_detected ?? "—"}</strong></div>
             <div><span class="label">Confidence</span><strong>${hasResult ? pct + "%" : "—"}</strong></div>
+            <div><span class="label">Car parked</span><strong>${parkedAt}</strong></div>
+            <div><span class="label">Car left</span><strong>${leftAt}</strong></div>
           </div>
           ${expectedHint}
           ${bay.expected_car_number != null && hasResult ? `<span class="badge ${correctClass}">${correctLabel}</span>` : ""}

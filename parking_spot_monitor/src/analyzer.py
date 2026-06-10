@@ -9,9 +9,10 @@ import cv2
 from src.aruco import PreviousBayDetection, analyze_image
 from src.bay_matching import compute_correct_car
 from src.config import settings
-from src.database import db
+from src.database import db, _now
 from src.ha_client import ha_client
 from src.mqtt_publisher import mqtt_publisher
+from src.occupancy import is_dark_frame
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,46 @@ async def _analyze_bay_image(bay: dict, image_path: str, fleet: list[dict]) -> d
         raise RuntimeError(f"Could not read snapshot: {image_path}")
 
     previous_row = await db.get_bay_state(bay["id"])
+
+    if is_dark_frame(image):
+        if previous_row and previous_row.get("analyzed_at"):
+            logger.info(
+                "Dark frame for %s — keeping previous state (occupied=%s)",
+                bay.get("name"),
+                previous_row.get("occupied"),
+            )
+            return {
+                "bay_id": bay["id"],
+                "bay_name": bay["name"],
+                "occupied": bool(previous_row.get("occupied")),
+                "car_number": previous_row.get("car_number"),
+                "aruco_id_detected": previous_row.get("aruco_id_detected"),
+                "confidence": float(previous_row.get("confidence") or 0),
+                "correct_car": previous_row.get("correct_car") or "uncertain",
+                "expected_car_number": bay.get("expected_car_number"),
+                "car_parked_at": previous_row.get("car_parked_at"),
+                "car_left_at": previous_row.get("car_left_at"),
+                "snapshot_path": previous_row.get("snapshot_path"),
+                "dark_frame": True,
+                "unchanged": True,
+            }
+        logger.info("Dark frame for %s — no prior state, skipping update", bay.get("name"))
+        return {
+            "bay_id": bay["id"],
+            "bay_name": bay["name"],
+            "occupied": False,
+            "car_number": None,
+            "aruco_id_detected": None,
+            "confidence": 0.0,
+            "correct_car": "uncertain",
+            "expected_car_number": bay.get("expected_car_number"),
+            "car_parked_at": None,
+            "car_left_at": None,
+            "snapshot_path": image_path,
+            "dark_frame": True,
+            "unchanged": True,
+        }
+
     previous = None
     if previous_row:
         previous = PreviousBayDetection(
@@ -70,6 +111,16 @@ async def _analyze_bay_image(bay: dict, image_path: str, fleet: list[dict]) -> d
         expected_car_number=bay.get("expected_car_number"),
         fleet=fleet,
     )
+
+    prev_occupied = bool(previous_row.get("occupied")) if previous_row else False
+    car_parked_at = previous_row.get("car_parked_at") if previous_row else None
+    car_left_at = previous_row.get("car_left_at") if previous_row else None
+
+    if result.occupied and not prev_occupied:
+        car_parked_at = _now()
+    elif not result.occupied and prev_occupied:
+        car_left_at = _now()
+
     await db.upsert_bay_state(
         bay_id=bay["id"],
         occupied=result.occupied,
@@ -78,6 +129,8 @@ async def _analyze_bay_image(bay: dict, image_path: str, fleet: list[dict]) -> d
         confidence=result.confidence,
         snapshot_path=image_path,
         correct_car=correct_car,
+        car_parked_at=car_parked_at,
+        car_left_at=car_left_at,
     )
     mqtt_publisher.publish_bay_state(
         bay_id=bay["id"],
@@ -88,6 +141,8 @@ async def _analyze_bay_image(bay: dict, image_path: str, fleet: list[dict]) -> d
         confidence=result.confidence,
         correct_car=correct_car,
         expected_car_number=bay.get("expected_car_number"),
+        car_parked_at=car_parked_at,
+        car_left_at=car_left_at,
     )
     return {
         "bay_id": bay["id"],
@@ -98,7 +153,11 @@ async def _analyze_bay_image(bay: dict, image_path: str, fleet: list[dict]) -> d
         "confidence": result.confidence,
         "correct_car": correct_car,
         "expected_car_number": bay.get("expected_car_number"),
+        "car_parked_at": car_parked_at,
+        "car_left_at": car_left_at,
         "snapshot_path": image_path,
+        "dark_frame": False,
+        "unchanged": False,
     }
 
 
