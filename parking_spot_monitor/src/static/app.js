@@ -1,3 +1,11 @@
+function slugFromCamera(entity) {
+  return (entity || "").replace(/\./g, "_").replace(/ /g, "_").toLowerCase();
+}
+
+function getBayId(bay) {
+  return (bay?.id || bay?.bay_id || "").trim() || slugFromCamera(bay?.camera_entity_id);
+}
+
 /** Build URLs under the Ingress prefix (HA injects <base href="http://.../">). */
 function ingressUrl(relativePath) {
   const rel = relativePath.replace(/^\//, "").replace(/\/+$/, "");
@@ -239,14 +247,14 @@ async function loadBayConfig() {
       <td><strong>${b.name}</strong></td>
       <td><code>${b.camera_entity_id}</code></td>
       <td>
-        <select class="expected-car-select" data-id="${b.id}" aria-label="Expected car for ${b.name}">
+        <select class="expected-car-select" data-id="${getBayId(b)}" aria-label="Expected car for ${b.name}">
           ${fleetOptions(b.expected_car_number)}
         </select>
       </td>
       <td class="config-actions">
-        <button class="btn small bay-snapshot" data-id="${b.id}">Snapshot</button>
-        <button class="btn small edit-bay" data-id="${b.id}">Edit</button>
-        <button class="btn small danger delete-bay" data-id="${b.id}">Delete</button>
+        <button class="btn small bay-snapshot" data-id="${getBayId(b)}">Snapshot</button>
+        <button class="btn small edit-bay" data-id="${getBayId(b)}">Edit</button>
+        <button class="btn small danger delete-bay" data-id="${getBayId(b)}">Delete</button>
       </td>
     </tr>`
     )
@@ -267,8 +275,8 @@ async function assignExpectedCar(bayId, selectEl) {
   const expected_car_number = value === "" ? null : parseInt(value, 10);
   selectEl.disabled = true;
   try {
-    await api(`/bays/${bayId}/expected-car`, {
-      method: "PATCH",
+    await api(`/bays/${encodeURIComponent(bayId)}/expected-car`, {
+      method: "POST",
       body: JSON.stringify({ expected_car_number }),
     });
     await loadBayConfig();
@@ -295,12 +303,13 @@ function buildFleetOptions(selected) {
   return html;
 }
 
-async function openBayModal(bay = null) {
+async function openBayModal(bay = null, explicitBayId = null) {
   state.fleet = await api("/fleet");
   if (!bay) {
     state.bays = await api("/bays");
   }
   const isEdit = bay != null;
+  const saveBayId = explicitBayId || getBayId(bay);
   const nextIndex = state.bays.length;
   const defaultEntity = `camera.parking_bay_${nextIndex + 1}`;
   showModal(
@@ -354,7 +363,14 @@ async function openBayModal(bay = null) {
       };
       try {
         if (isEdit) {
-          await api(`/bays/${bay.id}`, { method: "PUT", body: JSON.stringify(body) });
+          if (!saveBayId) {
+            alert("This bay has no ID in the database. Delete it and add it again.");
+            return;
+          }
+          await api(`/bays/${encodeURIComponent(saveBayId)}`, {
+            method: "POST",
+            body: JSON.stringify(body),
+          });
         } else {
           await api("/bays", { method: "POST", body: JSON.stringify(body) });
         }
@@ -369,14 +385,14 @@ async function openBayModal(bay = null) {
 }
 
 function editBay(bayId) {
-  const bay = state.bays.find((b) => b.id === bayId);
+  const bay = state.bays.find((b) => getBayId(b) === bayId);
   if (!bay) return;
-  openBayModal(bay);
+  openBayModal(bay, bayId);
 }
 
 async function deleteBay(bayId) {
   if (!confirm("Delete this bay?")) return;
-  await api(`/bays/${bayId}`, { method: "DELETE" });
+  await api(`/bays/${encodeURIComponent(bayId)}/delete`, { method: "POST" });
   loadBayConfig();
   loadDashboard();
 }

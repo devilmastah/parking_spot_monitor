@@ -90,13 +90,23 @@ async def status():
     }
 
 
-@router.get("/bays")
-async def list_bays():
-    return await db.list_bays()
-
-
 def _bay_id_from_entity(camera_entity_id: str) -> str:
     return camera_entity_id.replace(".", "_").replace(" ", "_").lower()
+
+
+def _normalize_bay_row(row: dict) -> dict:
+    """Ensure every bay has a stable id (legacy rows may only have camera_entity_id)."""
+    camera = (row.get("camera_entity_id") or "").strip()
+    bay_id = (row.get("id") or row.get("bay_id") or "").strip()
+    if not bay_id and camera:
+        bay_id = _bay_id_from_entity(camera)
+        row["id"] = bay_id
+    return row
+
+
+@router.get("/bays")
+async def list_bays():
+    return [_normalize_bay_row(row) for row in await db.list_bays()]
 
 
 @router.post("/bays")
@@ -119,8 +129,7 @@ async def create_bay(body: BayIn):
     return result
 
 
-@router.put("/bays/{bay_id}")
-async def update_bay(bay_id: str, body: BayIn):
+async def _save_bay(bay_id: str, body: BayIn) -> dict:
     camera_entity_id = body.camera_entity_id.strip()
     if not camera_entity_id:
         raise HTTPException(400, "Camera entity ID is required")
@@ -137,6 +146,17 @@ async def update_bay(bay_id: str, body: BayIn):
         raise HTTPException(status, str(exc)) from exc
     await _after_bay_saved(bay_id)
     return result
+
+
+@router.put("/bays/{bay_id}")
+async def update_bay(bay_id: str, body: BayIn):
+    return await _save_bay(bay_id, body)
+
+
+@router.post("/bays/{bay_id}")
+async def save_bay(bay_id: str, body: BayIn):
+    """POST update — HA Ingress mishandles PUT with 307 redirects over HTTPS."""
+    return await _save_bay(bay_id, body)
 
 
 @router.patch("/bays/{bay_id}/expected-car")
@@ -157,8 +177,19 @@ async def set_expected_car(bay_id: str, body: ExpectedCarIn):
     }
 
 
+@router.post("/bays/{bay_id}/expected-car")
+async def set_expected_car_post(bay_id: str, body: ExpectedCarIn):
+    return await set_expected_car(bay_id, body)
+
+
 @router.delete("/bays/{bay_id}")
 async def delete_bay(bay_id: str):
+    await db.delete_bay(bay_id)
+    return {"ok": True}
+
+
+@router.post("/bays/{bay_id}/delete")
+async def delete_bay_post(bay_id: str):
     await db.delete_bay(bay_id)
     return {"ok": True}
 

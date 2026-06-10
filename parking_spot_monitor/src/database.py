@@ -71,6 +71,32 @@ class Database:
             )
 
         await self._migrate_fleet_table(db)
+        await self._migrate_bay_ids(db)
+
+    async def _migrate_bay_ids(self, db) -> None:
+        """Fill missing bay ids from camera_entity_id (legacy imports)."""
+        cur = await db.execute("SELECT id, camera_entity_id FROM bays")
+        for row in await cur.fetchall():
+            old_id = (row[0] or "").strip()
+            camera = (row[1] or "").strip()
+            if not camera:
+                continue
+            new_id = camera.replace(".", "_").replace(" ", "_").lower()
+            if old_id:
+                continue
+            logger.info("Migrating bay id for camera %s → %s", camera, new_id)
+            await db.execute(
+                "UPDATE bay_states SET bay_id = ? WHERE bay_id = ?",
+                (new_id, old_id),
+            )
+            await db.execute(
+                """
+                UPDATE bays
+                SET id = ?
+                WHERE camera_entity_id = ? AND (id IS NULL OR id = '')
+                """,
+                (new_id, camera),
+            )
 
     async def _migrate_fleet_table(self, db) -> None:
         """Upgrade v1 fleet (license_plate) to v2+ fleet (aruco_id)."""
