@@ -5,6 +5,9 @@ substitutions:
   device_slug: parking-bay-XX          # unique, lowercase, hyphens (ESPHome device name)
   friendly_name: Parking Bay XX        # shown in Home Assistant
   bay_label: "XX"                      # label for logs / fallback AP
+  # camera.parking_bay_XX — device_slug with hyphens → underscores
+  ha_camera_entity: camera.parking_bay_XX
+  debug_snapshot_file: /config/www/parking_bay_XX_debug.jpg
   # ap_ssid: "Parking-Bay-XX Fallback Hotspot"   # optional custom fallback WiFi name
 
 packages:

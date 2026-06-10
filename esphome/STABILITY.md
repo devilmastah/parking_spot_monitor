@@ -78,6 +78,18 @@ Wrong PSRAM mode → random crashes.
 1. Drop to `320x240` temporarily — if stable, it was memory/bandwidth
 2. Confirm PSRAM: ESPHome log at boot should mention PSRAM detected
 3. Try a different physical ESP32-CAM (clones vary)
-4. Keep `flash_before_capture: false` in the add-on (less load)
+4. Keep `flash_before_capture: false` in daylight (less load; flash is for dark bays only)
+
+## #8 Exposure / dark snapshots
+
+`idle_framerate: 0 fps` saves power but the OV2640 needs time to adjust exposure after wake. Symptoms: fast shutter, underexposed JPEGs despite good lighting.
+
+Mitigations (see `parking_bay_base.yaml`):
+
+- `prepare_capture` script — 800 ms AEC warmup before each snapshot
+- `ae_level: 2`, `aec2: true`, `agc_gain_ceiling: 8x`
+- Add-on always calls `prepare_capture` (flash optional via `flash_before_capture`)
+
+If still dark: raise `camera_prepare_delay` to `1200ms`, or use `camera_aec_mode: manual` with `camera_aec_value: 700`.
 
 ArUco detection works fine at 640×480 when the marker is sized appropriately in frame (~5–15% of image width).

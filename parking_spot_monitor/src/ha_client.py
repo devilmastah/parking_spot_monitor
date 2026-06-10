@@ -27,13 +27,14 @@ class HAClient:
         return headers
 
     @staticmethod
-    def prepare_script_entity(camera_entity_id: str) -> str:
-        """ESPHome script entity matching parking_bay_esp32cam.yaml (id: prepare_capture)."""
+    def prepare_script_entity(camera_entity_id: str, with_flash: bool = False) -> str:
+        """ESPHome prepare_capture / prepare_capture_flash script for this camera."""
         suffix = camera_entity_id.removeprefix("camera.")
-        return f"script.{suffix}_prepare_capture"
+        name = "prepare_capture_flash" if with_flash else "prepare_capture"
+        return f"script.{suffix}_{name}"
 
-    async def run_prepare_capture(self, camera_entity_id: str) -> None:
-        script_entity = self.prepare_script_entity(camera_entity_id)
+    async def run_prepare_capture(self, camera_entity_id: str, with_flash: bool = False) -> None:
+        script_entity = self.prepare_script_entity(camera_entity_id, with_flash=with_flash)
         url = f"{self.base_url}/api/services/script/turn_on"
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
@@ -72,13 +73,33 @@ class HAClient:
                 "Ensure homeassistant_api: true in add-on config and restart the add-on."
             )
 
-        if settings.flash_before_capture:
-            try:
-                await self.run_prepare_capture(entity_id)
-            except Exception:
-                logger.exception("prepare_capture failed for %s, continuing anyway", entity_id)
+        try:
+            await self.run_prepare_capture(entity_id, with_flash=settings.flash_before_capture)
+        except Exception:
+            logger.exception("prepare_capture failed for %s, continuing anyway", entity_id)
 
         os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        warmup = max(0, settings.snapshot_warmup_frames)
+        for frame in range(1, warmup + 1):
+            try:
+                await self._request_snapshot(entity_id)
+                logger.info(
+                    "Warmup snapshot %s/%s for %s (discarded — lets OV2640 settle)",
+                    frame,
+                    warmup,
+                    entity_id,
+                )
+                if frame < warmup:
+                    await asyncio.sleep(0.4)
+            except Exception:
+                logger.warning(
+                    "Warmup snapshot %s/%s failed for %s, continuing",
+                    frame,
+                    warmup,
+                    entity_id,
+                    exc_info=True,
+                )
+
         attempts = max(1, settings.snapshot_max_attempts)
         last_error: Exception | None = None
 

@@ -1,6 +1,6 @@
 name: Parking Spot Monitor
 description: Monitor parking bays via ESP32-CAM snapshots and roof-mounted ArUco markers
-version: "2.4.4"
+version: "2.4.8"
 slug: parking_spot_monitor
 init: false
 arch:
@@ -20,7 +20,8 @@ options:
   snapshot_interval_minutes: 5
   capture_delay_seconds: 3
   flash_before_capture: false
-  prepare_capture_wait_ms: 2000
+  prepare_capture_wait_ms: 3000
+  snapshot_warmup_frames: 1
   snapshot_max_attempts: 3
   snapshot_retry_delay_seconds: 5
   aruco_dictionary: DICT_4X4_50
@@ -37,6 +38,7 @@ schema:
   capture_delay_seconds: int(1,30)?
   flash_before_capture: bool
   prepare_capture_wait_ms: int(500,10000)?
+  snapshot_warmup_frames: int(0,3)?
   snapshot_max_attempts: int(1,10)?
   snapshot_retry_delay_seconds: int(1,30)?
   aruco_dictionary: str

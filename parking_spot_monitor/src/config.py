@@ -24,7 +24,10 @@ class Settings:
         default_factory=lambda: os.getenv("FLASH_BEFORE_CAPTURE", "false").lower() == "true"
     )
     prepare_capture_wait_ms: int = field(
-        default_factory=lambda: int(os.getenv("PREPARE_CAPTURE_WAIT_MS", "2000"))
+        default_factory=lambda: int(os.getenv("PREPARE_CAPTURE_WAIT_MS", "3000"))
+    )
+    snapshot_warmup_frames: int = field(
+        default_factory=lambda: int(os.getenv("SNAPSHOT_WARMUP_FRAMES", "1"))
     )
     snapshot_max_attempts: int = field(
         default_factory=lambda: int(os.getenv("SNAPSHOT_MAX_ATTEMPTS", "3"))

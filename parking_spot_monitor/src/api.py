@@ -82,6 +82,7 @@ async def status():
         "capture_delay_seconds": settings.capture_delay_seconds,
         "flash_before_capture": settings.flash_before_capture,
         "prepare_capture_wait_ms": settings.prepare_capture_wait_ms,
+        "snapshot_warmup_frames": settings.snapshot_warmup_frames,
         "snapshot_max_attempts": settings.snapshot_max_attempts,
         "snapshot_retry_delay_seconds": settings.snapshot_retry_delay_seconds,
         "aruco_dictionary": settings.aruco_dictionary,
@@ -294,6 +295,7 @@ async def analyze_one_debug(bay_id: str):
             "best_confidence": debug.best_confidence,
             "attempts": debug.attempts,
             "used_flip": debug.used_flip,
+            "preprocess_pass": debug.preprocess_pass,
         },
     }
 

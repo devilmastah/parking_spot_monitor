@@ -24,6 +24,9 @@ ARUCO_DICTIONARIES = {
 
 OCCUPIED_CONFIDENCE_THRESHOLD = 0.5
 
+# Contrast multipliers for glare / reflection fallback passes.
+CONTRAST_STEPS = (1.3, 1.7, 2.2)
+
 
 @dataclass
 class ArucoResult:
@@ -39,10 +42,11 @@ class ArucoDebugInfo:
     best_confidence: dict[int, float] = field(default_factory=dict)
     attempts: int = 0
     used_flip: bool | None = None
+    preprocess_pass: str | None = None
 
 
 def _make_detector_params() -> cv2.aruco.DetectorParameters:
-    """Standard params — flip handles ESP32 mirror; avoid aggressive multi-pass tuning."""
+    """Tuned for small roof markers; multi-pass preprocessing handles glare."""
     params = cv2.aruco.DetectorParameters()
     params.adaptiveThreshWinSizeMin = 3
     params.adaptiveThreshWinSizeMax = 23
@@ -58,6 +62,46 @@ def _get_detector(dictionary_name: str):
     dict_id = ARUCO_DICTIONARIES.get(dictionary_name, cv2.aruco.DICT_4X4_50)
     dictionary = cv2.aruco.getPredefinedDictionary(dict_id)
     return cv2.aruco.ArucoDetector(dictionary, _make_detector_params())
+
+
+def _to_bgr(image: np.ndarray) -> np.ndarray:
+    if image.ndim == 2:
+        return cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+    return image
+
+
+def _to_gray(image: np.ndarray) -> np.ndarray:
+    if image.ndim == 2:
+        return image
+    return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+
+def _gray_as_bgr(gray: np.ndarray) -> np.ndarray:
+    return cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+
+
+def _preprocess_passes(image: np.ndarray) -> list[tuple[str, np.ndarray]]:
+    """Detection variants: normal → enhanced B&W → stepped contrast."""
+    bgr = _to_bgr(image)
+    gray = _to_gray(bgr)
+    passes: list[tuple[str, np.ndarray]] = [("normal", bgr)]
+
+    clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
+    passes.append(("bw_clahe", _gray_as_bgr(clahe.apply(gray))))
+
+    # Denoise then local contrast — helps tape/glare on shiny surfaces.
+    denoised = cv2.bilateralFilter(gray, 9, 75, 75)
+    clahe_strong = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    passes.append(("bw_bilateral_clahe", _gray_as_bgr(clahe_strong.apply(denoised))))
+
+    for step, alpha in enumerate(CONTRAST_STEPS, start=1):
+        adjusted = cv2.convertScaleAbs(gray, alpha=alpha, beta=0)
+        passes.append((f"contrast_{step}", _gray_as_bgr(adjusted)))
+
+    # Softer contrast for blown highlights near windows/reflections.
+    passes.append(("contrast_soft", _gray_as_bgr(cv2.convertScaleAbs(gray, alpha=0.85, beta=18))))
+
+    return passes
 
 
 def _marker_confidence(corners: np.ndarray, image_shape: tuple[int, ...]) -> float:
@@ -91,7 +135,7 @@ def _best_detection_in_image(
     dictionary_name: str,
 ) -> tuple[int | None, float, int]:
     """Single-pass detection on one orientation."""
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    gray = _to_gray(image)
     detector = _get_detector(dictionary_name)
     corners, ids, _rejected = detector.detectMarkers(gray)
 
@@ -141,6 +185,106 @@ def _detect_with_flip(
     return winner_id, confidence, votes, best_confidence, attempts, used_flip
 
 
+def _merge_detection_stats(
+    target_votes: dict[int, int],
+    target_best: dict[int, float],
+    votes: dict[int, int],
+    best_confidence: dict[int, float],
+) -> None:
+    for marker_id, count in votes.items():
+        target_votes[marker_id] = target_votes.get(marker_id, 0) + count
+    for marker_id, conf in best_confidence.items():
+        target_best[marker_id] = max(target_best.get(marker_id, 0.0), conf)
+
+
+@dataclass
+class _PassDetection:
+    marker_id: int
+    confidence: float
+    preprocess_pass: str
+    used_flip: bool | None
+
+
+def _pick_best_detection(
+    hits: list[_PassDetection],
+    fleet: list[dict],
+) -> _PassDetection | None:
+    if not hits:
+        return None
+
+    fleet_ids = {car["aruco_id"] for car in fleet}
+    best_any = max(hits, key=lambda h: h.confidence)
+    if not fleet_ids:
+        return best_any
+
+    fleet_hits = [h for h in hits if h.marker_id in fleet_ids]
+    if not fleet_hits:
+        return best_any
+
+    best_fleet = max(fleet_hits, key=lambda h: h.confidence)
+    # Prefer a known fleet marker when confidence is close (reduces glare false positives).
+    if best_fleet.confidence >= best_any.confidence - 0.12:
+        return best_fleet
+    return best_any
+
+
+def _detect_multi_pass(
+    image: np.ndarray,
+    dictionary_name: str,
+    fleet: list[dict] | None = None,
+) -> tuple[int | None, float, dict[int, int], dict[int, float], int, bool | None, str | None]:
+    """Run normal → B&W CLAHE → contrast steps until a confident hit or all exhausted."""
+    hits: list[_PassDetection] = []
+    total_votes: dict[int, int] = {}
+    total_best: dict[int, float] = {}
+    total_attempts = 0
+
+    for pass_name, variant in _preprocess_passes(image):
+        (
+            marker_id,
+            confidence,
+            votes,
+            best_confidence,
+            attempts,
+            used_flip,
+        ) = _detect_with_flip(variant, dictionary_name)
+        total_attempts += attempts
+        _merge_detection_stats(total_votes, total_best, votes, best_confidence)
+
+        if marker_id is not None:
+            hits.append(
+                _PassDetection(marker_id, confidence, pass_name, used_flip)
+            )
+
+        best_so_far = _pick_best_detection(hits, fleet or [])
+        if (
+            best_so_far is not None
+            and best_so_far.confidence >= OCCUPIED_CONFIDENCE_THRESHOLD
+        ):
+            logger.debug(
+                "ArUco detected on pass=%s id=%s confidence=%s flip=%s",
+                best_so_far.preprocess_pass,
+                best_so_far.marker_id,
+                best_so_far.confidence,
+                best_so_far.used_flip,
+            )
+            break
+
+    winner = _pick_best_detection(hits, fleet or [])
+    if winner is None:
+        return None, 0.0, total_votes, total_best, total_attempts, None, None
+
+    return (
+        winner.marker_id,
+        winner.confidence,
+        total_votes,
+        total_best,
+        total_attempts,
+        winner.used_flip,
+        winner.preprocess_pass,
+    )
+
+
 def _match_fleet(aruco_id: int, fleet: list[dict]) -> int | None:
     for car in fleet:
         if car["aruco_id"] == aruco_id:
@@ -165,33 +309,54 @@ def analyze_image_with_debug(
     if image is None or image.size == 0:
         return ArucoResult(False, None, None, 0.0), ArucoDebugInfo()
 
-    winner_id, confidence, votes, best_confidence, attempts, used_flip = (
-        _detect_with_flip(image, dictionary_name)
-    )
+    (
+        winner_id,
+        confidence,
+        votes,
+        best_confidence,
+        attempts,
+        used_flip,
+        preprocess_pass,
+    ) = _detect_multi_pass(image, dictionary_name, fleet=fleet)
     debug = ArucoDebugInfo(
         votes=votes,
         best_confidence=best_confidence,
         attempts=attempts,
         used_flip=used_flip,
+        preprocess_pass=preprocess_pass,
     )
 
     if winner_id is None or confidence < OCCUPIED_CONFIDENCE_THRESHOLD:
         logger.info(
-            "Bay empty or below confidence threshold (dictionary=%s id=%s confidence=%s threshold=%s flip=%s)",
+            "Bay empty or below confidence threshold (dictionary=%s id=%s confidence=%s "
+            "threshold=%s votes=%s flip=%s pass=%s attempts=%s)",
             dictionary_name,
             winner_id,
             confidence,
             OCCUPIED_CONFIDENCE_THRESHOLD,
+            votes.get(winner_id, 0) if winner_id is not None else 0,
             used_flip,
+            preprocess_pass,
+            attempts,
         )
         return ArucoResult(False, None, None, round(float(confidence), 3)), debug
 
     car_number = _match_fleet(winner_id, fleet)
     if car_number is None:
         logger.info(
-            "ArUco id=%s detected but not in fleet (confidence=%s)",
+            "ArUco id=%s detected but not in fleet (confidence=%s pass=%s)",
             winner_id,
             confidence,
+            preprocess_pass,
+        )
+    else:
+        logger.info(
+            "ArUco id=%s car=%s confidence=%s pass=%s flip=%s",
+            winner_id,
+            car_number,
+            confidence,
+            preprocess_pass,
+            used_flip,
         )
 
     return ArucoResult(

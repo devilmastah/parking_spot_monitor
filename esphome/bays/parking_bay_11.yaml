@@ -4,6 +4,8 @@ substitutions:
   device_slug: parking-bay-11
   friendly_name: Parking Bay 11
   bay_label: "11"
+  ha_camera_entity: camera.parking_bay_11
+  debug_snapshot_file: /config/www/parking_bay_11_debug.jpg
   ap_ssid: "Parking-Bay-11 Fallback Hotspot"
 
 packages:
