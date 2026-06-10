@@ -261,7 +261,7 @@ async def analyze_one(bay_id: str):
 @router.post("/analyze/{bay_id}/debug")
 async def analyze_one_debug(bay_id: str):
     """Re-analyze latest snapshot and return vote counts (for troubleshooting)."""
-    from src.aruco import analyze_image_with_debug
+    from src.aruco import PreviousBayDetection, analyze_image_with_debug
 
     bays = {b["id"]: b for b in await db.list_bays()}
     bay = bays.get(bay_id)
@@ -279,7 +279,18 @@ async def analyze_one_debug(bay_id: str):
     if image is None:
         raise HTTPException(500, f"Could not read snapshot: {path}")
 
-    result, debug = analyze_image_with_debug(image, fleet, settings.aruco_dictionary)
+    previous_row = await db.get_bay_state(bay_id)
+    previous = None
+    if previous_row:
+        previous = PreviousBayDetection(
+            aruco_id_detected=previous_row.get("aruco_id_detected"),
+            car_number=previous_row.get("car_number"),
+            confidence=float(previous_row.get("confidence") or 0),
+        )
+
+    result, debug = analyze_image_with_debug(
+        image, fleet, settings.aruco_dictionary, previous=previous
+    )
     return {
         "bay_id": bay_id,
         "bay_name": bay["name"],
@@ -296,6 +307,10 @@ async def analyze_one_debug(bay_id: str):
             "attempts": debug.attempts,
             "used_flip": debug.used_flip,
             "preprocess_pass": debug.preprocess_pass,
+            "color_occupied": debug.color_occupied,
+            "red_ratio": debug.red_ratio,
+            "gray_ratio": debug.gray_ratio,
+            "marker_sticky": debug.marker_sticky,
         },
     }
 

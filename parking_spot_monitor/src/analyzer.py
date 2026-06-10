@@ -6,7 +6,7 @@ import os
 
 import cv2
 
-from src.aruco import analyze_image
+from src.aruco import PreviousBayDetection, analyze_image
 from src.bay_matching import compute_correct_car
 from src.config import settings
 from src.database import db
@@ -48,7 +48,21 @@ async def _analyze_bay_image(bay: dict, image_path: str, fleet: list[dict]) -> d
     if image is None:
         raise RuntimeError(f"Could not read snapshot: {image_path}")
 
-    result = analyze_image(image, fleet, settings.aruco_dictionary)
+    previous_row = await db.get_bay_state(bay["id"])
+    previous = None
+    if previous_row:
+        previous = PreviousBayDetection(
+            aruco_id_detected=previous_row.get("aruco_id_detected"),
+            car_number=previous_row.get("car_number"),
+            confidence=float(previous_row.get("confidence") or 0),
+        )
+
+    result = analyze_image(
+        image,
+        fleet,
+        settings.aruco_dictionary,
+        previous=previous,
+    )
     correct_car = compute_correct_car(
         occupied=result.occupied,
         car_number_detected=result.car_number,

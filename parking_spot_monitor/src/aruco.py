@@ -37,12 +37,25 @@ class ArucoResult:
 
 
 @dataclass
+class PreviousBayDetection:
+    """Last saved marker — kept while the bay stays color-occupied."""
+
+    aruco_id_detected: int | None = None
+    car_number: int | None = None
+    confidence: float = 0.0
+
+
+@dataclass
 class ArucoDebugInfo:
     votes: dict[int, int] = field(default_factory=dict)
     best_confidence: dict[int, float] = field(default_factory=dict)
     attempts: int = 0
     used_flip: bool | None = None
     preprocess_pass: str | None = None
+    color_occupied: bool | None = None
+    red_ratio: float | None = None
+    gray_ratio: float | None = None
+    marker_sticky: bool = False
 
 
 def _make_detector_params() -> cv2.aruco.DetectorParameters:
@@ -292,23 +305,11 @@ def _match_fleet(aruco_id: int, fleet: list[dict]) -> int | None:
     return None
 
 
-def analyze_image(
+def _detect_marker(
     image: np.ndarray,
     fleet: list[dict],
-    dictionary_name: str = "DICT_4X4_50",
-) -> ArucoResult:
-    result, _debug = analyze_image_with_debug(image, fleet, dictionary_name)
-    return result
-
-
-def analyze_image_with_debug(
-    image: np.ndarray,
-    fleet: list[dict],
-    dictionary_name: str = "DICT_4X4_50",
-) -> tuple[ArucoResult, ArucoDebugInfo]:
-    if image is None or image.size == 0:
-        return ArucoResult(False, None, None, 0.0), ArucoDebugInfo()
-
+    dictionary_name: str,
+) -> tuple[int | None, float, ArucoDebugInfo]:
     (
         winner_id,
         confidence,
@@ -325,43 +326,97 @@ def analyze_image_with_debug(
         used_flip=used_flip,
         preprocess_pass=preprocess_pass,
     )
-
     if winner_id is None or confidence < OCCUPIED_CONFIDENCE_THRESHOLD:
-        logger.info(
-            "Bay empty or below confidence threshold (dictionary=%s id=%s confidence=%s "
-            "threshold=%s votes=%s flip=%s pass=%s attempts=%s)",
-            dictionary_name,
-            winner_id,
-            confidence,
-            OCCUPIED_CONFIDENCE_THRESHOLD,
-            votes.get(winner_id, 0) if winner_id is not None else 0,
-            used_flip,
-            preprocess_pass,
-            attempts,
-        )
-        return ArucoResult(False, None, None, round(float(confidence), 3)), debug
+        return None, round(float(confidence), 3), debug
+    return winner_id, round(float(confidence), 3), debug
 
-    car_number = _match_fleet(winner_id, fleet)
-    if car_number is None:
+
+def analyze_image(
+    image: np.ndarray,
+    fleet: list[dict],
+    dictionary_name: str = "DICT_4X4_50",
+    previous: PreviousBayDetection | None = None,
+) -> ArucoResult:
+    result, _debug = analyze_image_with_debug(
+        image, fleet, dictionary_name, previous=previous
+    )
+    return result
+
+
+def analyze_image_with_debug(
+    image: np.ndarray,
+    fleet: list[dict],
+    dictionary_name: str = "DICT_4X4_50",
+    previous: PreviousBayDetection | None = None,
+) -> tuple[ArucoResult, ArucoDebugInfo]:
+    from src.occupancy import RED_RATIO_OCCUPIED_THRESHOLD, detect_occupied_by_color
+
+    if image is None or image.size == 0:
+        return ArucoResult(False, None, None, 0.0), ArucoDebugInfo()
+
+    color = detect_occupied_by_color(image)
+    debug = ArucoDebugInfo(
+        color_occupied=color.occupied,
+        red_ratio=color.red_ratio,
+        gray_ratio=color.gray_ratio,
+    )
+
+    if not color.occupied:
         logger.info(
-            "ArUco id=%s detected but not in fleet (confidence=%s pass=%s)",
-            winner_id,
+            "Bay empty by color slice (red=%.1f%% gray=%.1f%% threshold=%.1f%%)",
+            color.red_ratio * 100,
+            color.gray_ratio * 100,
+            RED_RATIO_OCCUPIED_THRESHOLD * 100,
+        )
+        return ArucoResult(False, None, None, 0.0), debug
+
+    marker_id, marker_conf, marker_debug = _detect_marker(image, fleet, dictionary_name)
+    debug.votes = marker_debug.votes
+    debug.best_confidence = marker_debug.best_confidence
+    debug.attempts = marker_debug.attempts
+    debug.used_flip = marker_debug.used_flip
+    debug.preprocess_pass = marker_debug.preprocess_pass
+
+    aruco_id: int | None = None
+    car_number: int | None = None
+    confidence = 0.0
+
+    if marker_id is not None:
+        aruco_id = marker_id
+        car_number = _match_fleet(marker_id, fleet)
+        confidence = marker_conf
+        logger.info(
+            "Marker detected id=%s car=%s confidence=%s pass=%s (color red=%.1f%%)",
+            aruco_id,
+            car_number,
             confidence,
-            preprocess_pass,
+            debug.preprocess_pass,
+            color.red_ratio * 100,
+        )
+    elif (
+        previous is not None
+        and previous.aruco_id_detected is not None
+        and previous.confidence >= OCCUPIED_CONFIDENCE_THRESHOLD
+    ):
+        aruco_id = previous.aruco_id_detected
+        car_number = previous.car_number or _match_fleet(aruco_id, fleet)
+        confidence = previous.confidence
+        debug.marker_sticky = True
+        logger.info(
+            "Keeping previous marker id=%s car=%s while bay stays occupied (color red=%.1f%%)",
+            aruco_id,
+            car_number,
+            color.red_ratio * 100,
         )
     else:
         logger.info(
-            "ArUco id=%s car=%s confidence=%s pass=%s flip=%s",
-            winner_id,
-            car_number,
-            confidence,
-            preprocess_pass,
-            used_flip,
+            "Bay occupied by color (red=%.1f%%) but no marker detected",
+            color.red_ratio * 100,
         )
 
     return ArucoResult(
         occupied=True,
         car_number=car_number,
-        aruco_id_detected=winner_id,
-        confidence=round(float(confidence), 3),
+        aruco_id_detected=aruco_id,
+        confidence=confidence,
     ), debug

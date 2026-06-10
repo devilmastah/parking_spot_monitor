@@ -431,6 +431,16 @@ class Database:
             )
             await db.commit()
 
+    async def get_bay_state(self, bay_id: str) -> dict | None:
+        async with self.connect() as db:
+            cur = await db.execute("SELECT * FROM bay_states WHERE bay_id = ?", (bay_id,))
+            row = await cur.fetchone()
+            if not row:
+                return None
+            result = dict(row)
+            result["occupied"] = bool(result.get("occupied"))
+            return result
+
     async def list_bay_states(self) -> list[dict]:
         async with self.connect() as db:
             cur = await db.execute(

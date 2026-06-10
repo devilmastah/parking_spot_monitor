@@ -104,9 +104,21 @@ function renderDashboard() {
             : "Empty";
       const correctCar = bay.correct_car || "uncertain";
       const correctLabel =
-        correctCar === "yes" ? "Correct car" : correctCar === "no" ? "Wrong car" : "Assign expected car";
+        correctCar === "yes"
+          ? "Correct car"
+          : correctCar === "no"
+            ? "Wrong car"
+            : correctCar === "unknown"
+              ? "Occupied, car unknown"
+              : "Assign expected car";
       const correctClass =
-        correctCar === "yes" ? "correct-yes" : correctCar === "no" ? "correct-no" : "correct-unknown";
+        correctCar === "yes"
+          ? "correct-yes"
+          : correctCar === "no"
+            ? "correct-no"
+            : correctCar === "unknown"
+              ? "correct-car-unknown"
+              : "correct-unknown";
       const expectedHint =
         bay.expected_car_number == null
           ? `<p class="hint warn">No expected car — assign in <strong>Configure bays</strong></p>`

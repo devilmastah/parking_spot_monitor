@@ -3,8 +3,14 @@
 CORRECT_CAR_YES = "yes"
 CORRECT_CAR_NO = "no"
 CORRECT_CAR_UNCERTAIN = "uncertain"
+CORRECT_CAR_UNKNOWN = "unknown"
 
-VALID_CORRECT_CAR = {CORRECT_CAR_YES, CORRECT_CAR_NO, CORRECT_CAR_UNCERTAIN}
+VALID_CORRECT_CAR = {
+    CORRECT_CAR_YES,
+    CORRECT_CAR_NO,
+    CORRECT_CAR_UNCERTAIN,
+    CORRECT_CAR_UNKNOWN,
+}
 
 
 def _expected_aruco_id(expected_car_number: int, fleet: list[dict]) -> int | None:
@@ -37,5 +43,8 @@ def compute_correct_car(
 
     if aruco_id_detected is not None and aruco_id_detected == expected_aruco:
         return CORRECT_CAR_YES
+
+    if aruco_id_detected is None and car_number_detected is None:
+        return CORRECT_CAR_UNKNOWN
 
     return CORRECT_CAR_NO
