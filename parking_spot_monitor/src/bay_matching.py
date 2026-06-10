@@ -31,20 +31,17 @@ def compute_correct_car(
     if expected_car_number is None:
         return CORRECT_CAR_UNCERTAIN
 
-    expected_aruco = _expected_aruco_id(expected_car_number, fleet)
-    if expected_aruco is None:
-        return CORRECT_CAR_UNCERTAIN
-
     if not occupied:
         return CORRECT_CAR_NO
+
+    if aruco_id_detected is None and car_number_detected is None:
+        return CORRECT_CAR_UNKNOWN
 
     if car_number_detected == expected_car_number:
         return CORRECT_CAR_YES
 
-    if aruco_id_detected is not None and aruco_id_detected == expected_aruco:
+    expected_aruco = _expected_aruco_id(expected_car_number, fleet)
+    if expected_aruco is not None and aruco_id_detected == expected_aruco:
         return CORRECT_CAR_YES
-
-    if aruco_id_detected is None and car_number_detected is None:
-        return CORRECT_CAR_UNKNOWN
 
     return CORRECT_CAR_NO

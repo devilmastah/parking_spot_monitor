@@ -103,20 +103,28 @@ function renderDashboard() {
             ? "Occupied"
             : "Empty";
       const correctCar = bay.correct_car || "uncertain";
+      const effectiveCorrectCar =
+        hasResult &&
+        occupied &&
+        bay.expected_car_number != null &&
+        bay.aruco_id_detected == null &&
+        bay.car_number == null
+          ? "unknown"
+          : correctCar;
       const correctLabel =
-        correctCar === "yes"
+        effectiveCorrectCar === "yes"
           ? "Correct car"
-          : correctCar === "no"
+          : effectiveCorrectCar === "no"
             ? "Wrong car"
-            : correctCar === "unknown"
+            : effectiveCorrectCar === "unknown"
               ? "Occupied, car unknown"
               : "Assign expected car";
       const correctClass =
-        correctCar === "yes"
+        effectiveCorrectCar === "yes"
           ? "correct-yes"
-          : correctCar === "no"
+          : effectiveCorrectCar === "no"
             ? "correct-no"
-            : correctCar === "unknown"
+            : effectiveCorrectCar === "unknown"
               ? "correct-car-unknown"
               : "correct-unknown";
       const expectedHint =
