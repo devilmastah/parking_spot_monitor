@@ -1,0 +1,15 @@
+# Copy this file → parking_bay_XX.yaml and edit the four values below.
+# Then flash parking_bay_XX.yaml in ESPHome.
+
+substitutions:
+  device_slug: parking-bay-XX          # unique, lowercase, hyphens (ESPHome device name)
+  friendly_name: Parking Bay XX        # shown in Home Assistant
+  bay_label: "XX"                      # label for logs / fallback AP
+  # ap_ssid: "Parking-Bay-XX Fallback Hotspot"   # optional custom fallback WiFi name
+
+packages:
+  parking_bay: !include ../parking_bay_base.yaml
+
+# Optional per-bay overrides (uncomment if needed):
+# wifi:
+#   fast_connect: true

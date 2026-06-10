@@ -1,96 +1,103 @@
 # ESPHome configs for Parking Spot Monitor
 
-One **ESP32-CAM (AI-Thinker)** per parking bay, running this config.
+One **ESP32-CAM (AI-Thinker)** per parking bay.
 
-## Quick start
+## Template layout
 
-1. Install the [ESPHome add-on](https://esphome.io/guides/getting_started_hassio.html) in Home Assistant (if not already).
+```
+esphome/
+  parking_bay_base.yaml      ← shared hardware/camera/flash (do not flash directly)
+  bays/
+    parking_bay_TEMPLATE.yaml   ← copy this for each new bay
+    parking_bay_01.yaml
+    parking_bay_11.yaml         ← your working bay 11 example
+  secrets.yaml                  ← your WiFi + keys (not in git)
+  secrets.yaml.example
+```
 
-2. Copy this folder into your ESPHome config path, or paste `parking_bay_esp32cam.yaml` via **ESPHome → New device → Edit**.
+**Flash the thin file** under `bays/`, not the base file.
 
-3. Copy `secrets.yaml.example` → `secrets.yaml` and fill in WiFi + keys.
+## Add a new bay (2 minutes)
 
-4. Edit **substitutions** at the top of `parking_bay_esp32cam.yaml` for this bay:
+1. Copy the template:
+   ```
+   bays/parking_bay_TEMPLATE.yaml  →  bays/parking_bay_12.yaml
+   ```
+
+2. Edit only the substitutions at the top:
 
    ```yaml
    substitutions:
-     device_slug: parking-bay-1      # MUST be unique per bay
-     friendly_name: Parking Bay 1
-     bay_label: "1"
+     device_slug: parking-bay-12
+     friendly_name: Parking Bay 12
+     bay_label: "12"
    ```
 
-5. Flash the device. In HA (via **ESPHome integration** + `api:`) you should get:
-   - `camera.parking_bay_1`
-   - `script.parking_bay_1_prepare_capture`
-   - `button.parking_bay_1_test_flash`
+3. In ESPHome: **New device** → paste `bays/parking_bay_12.yaml` (or point ESPHome dashboard at the file).
 
-   Do **not** add an empty `homeassistant:` block — that component is not valid YAML in current ESPHome.
+4. Copy `secrets.yaml.example` → `secrets.yaml` once per ESPHome config folder.
 
-6. Repeat for bay 2, 3, … with a **new copy** of the YAML (new `device_slug` each time).
+5. Flash. In Home Assistant you get e.g. `camera.parking_bay_12`.
+
+6. In Parking Spot Monitor add-on → **Configure bays** → camera entity `camera.parking_bay_12`.
+
+## Optional substitutions
+
+Set these in the bay file only when you need to override defaults from `parking_bay_base.yaml`:
+
+| Substitution | Default | Example override |
+|--------------|---------|------------------|
+| `camera_resolution` | `640x480` | `800x600` if PSRAM stable |
+| `camera_jpeg_quality` | `"10"` | lower number = higher JPEG quality |
+| `ap_ssid` | `${device_slug}-setup` | `"Parking-Bay-11 Fallback Hotspot"` |
+
+Per-bay WiFi tweaks (add below `packages:` in the bay file):
+
+```yaml
+wifi:
+  fast_connect: true
+```
+
+## Entity IDs in Home Assistant
+
+ESPHome turns hyphens into underscores:
+
+| device_slug | Typical camera entity |
+|-------------|----------------------|
+| parking-bay-1 | `camera.parking_bay_1` |
+| parking-bay-11 | `camera.parking_bay_11` |
+
+The camera `name` is `friendly_name`, so entities may also appear as `camera.parking_bay_11` when friendly name is used — check **Settings → Entities** after adoption.
 
 ## Per-bay checklist
 
-| Bay | device_slug     | HA camera entity          |
-|-----|-----------------|---------------------------|
-| 1   | parking-bay-1   | camera.parking_bay_1      |
-| 2   | parking-bay-2   | camera.parking_bay_2      |
-| 3   | parking-bay-3   | camera.parking_bay_3      |
-
-Entity IDs use underscores (ESPHome replaces `-` with `_`).
+| Bay | Flash this file | device_slug | HA camera (typical) |
+|-----|-----------------|-------------|---------------------|
+| 1 | `bays/parking_bay_01.yaml` | parking-bay-1 | camera.parking_bay_1 |
+| 11 | `bays/parking_bay_11.yaml` | parking-bay-11 | camera.parking_bay_11 |
 
 ## Camera mounting
 
-- Mount overhead or high angle looking at the **roof ArUco marker**
+- Mount overhead or high angle at the **roof ArUco marker**
 - Use **Test Flash** at night to verify exposure
-- Use **Snapshot** in the Parking Spot Monitor Web UI to confirm marker size (aim for ~5–15% of frame width)
+- Use **Take snapshot** in the Parking Spot Monitor Web UI to confirm marker size (~5–15% of frame width)
 
 ## Flash (optional)
 
-The ESPHome config includes a flash LED script for **night / dark bays only**. With good daylight you do **not** need it.
+Leave add-on config `flash_before_capture: false` in daylight. The ESPHome **prepare_capture** script is only called when you enable flash in the add-on.
 
-In the add-on config leave:
+## PSRAM / stability
 
-```yaml
-flash_before_capture: false
-```
-
-The add-on will fetch snapshots directly with no flash. The ESPHome **Test Flash** button remains for manual checks if you ever need it.
-
-## PSRAM
-
-**AI-Thinker ESP32-CAM** (classic ESP32): use `mode: quad` — already set in the YAML.
-
-**Octal** PSRAM is for **ESP32-S3** boards only; it will fail to compile on ESP32-CAM.
-
-If your module has **no PSRAM** (cheaper clones), comment out the whole `psram:` block and lower resolution:
-
-```yaml
-camera_resolution: 640x480
-```
-
-## Resolution
-
-Default `800x600` works well on AI-Thinker boards with quad PSRAM. If images are soft, try:
-
-```yaml
-camera_resolution: 1024x768
-camera_jpeg_quality: "10"
-```
-
-If the device crashes or reboots on capture, lower resolution or improve the 5 V power supply (ESP32-CAM is sensitive to voltage sag).
+See [STABILITY.md](STABILITY.md). AI-Thinker uses **quad** PSRAM (`mode: quad` in base). Comment out `psram:` if your board has none.
 
 ## Parking Spot Monitor add-on
 
-Add each camera under **bays** in add-on configuration:
-
 ```yaml
 bays:
-  - name: Bay 1
-    camera_entity_id: camera.parking_bay_1
-  - name: Bay 2
-    camera_entity_id: camera.parking_bay_2
-flash_before_capture: true
+  - name: Bay 11
+    camera_entity_id: camera.parking_bay_11
+    expected_car_number: 9
 capture_delay_seconds: 3
 ```
 
-`capture_delay_seconds` should be long enough for WiFi recovery between ESP32 snapshots (3–5 s typical).
+Use the exact entity ID from Home Assistant (Developer Tools → States).

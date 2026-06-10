@@ -1,9 +1,6 @@
-/** Resolve paths for HA Ingress (absolute /api and /static break behind ingress proxy). */
-function addonUrl(relativePath) {
-  const base = window.location.href.endsWith("/")
-    ? window.location.href
-    : `${window.location.href}/`;
-  return new URL(relativePath.replace(/^\//, ""), base).href;
+/** Paths relative to the Ingress URL (never use absolute /api or /static). */
+function addonPath(relativePath) {
+  return relativePath.replace(/^\//, "");
 }
 
 const REFRESH_MS = 30000;
@@ -22,15 +19,15 @@ document.querySelectorAll(".tab").forEach((tab) => {
       startAutoRefresh();
     } else {
       stopAutoRefresh();
-    if (tab.dataset.tab === "bays") loadBayConfig();
+      if (tab.dataset.tab === "bays") loadBayConfig();
       if (tab.dataset.tab === "settings") loadSettings();
     }
   });
 });
 
 async function api(path, options = {}) {
-  const rel = `api${path.startsWith("/") ? path : `/${path}`}`;
-  const res = await fetch(addonUrl(rel), {
+  const rel = addonPath(`api${path.startsWith("/") ? path : `/${path}`}`);
+  const res = await fetch(rel, {
     headers: { "Content-Type": "application/json" },
     ...options,
   });
@@ -93,7 +90,7 @@ function renderDashboard() {
           ? `<p class="hint warn">No expected car — assign in <strong>Configure bays</strong></p>`
           : "";
       const img = bay.snapshot_url
-        ? `<img src="${addonUrl(bay.snapshot_url)}?t=${Date.now()}" alt="${bay.bay_name}">`
+        ? `<img src="${addonPath(bay.snapshot_url)}?t=${Date.now()}" alt="${bay.bay_name}">`
         : `<span class="no-image">No snapshot yet</span>`;
 
       return `

@@ -1,0 +1,14 @@
+# Parking Bay 11 — flash this file in ESPHome (only edit substitutions below).
+
+substitutions:
+  device_slug: parking-bay-11
+  friendly_name: Parking Bay 11
+  bay_label: "11"
+  ap_ssid: "Parking-Bay-11 Fallback Hotspot"
+
+packages:
+  parking_bay: !include ../parking_bay_base.yaml
+
+# Optional overrides merged on top of the base package
+wifi:
+  fast_connect: true

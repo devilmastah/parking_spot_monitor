@@ -1,0 +1,9 @@
+# Parking Bay 1 — copy this file to create more bays (parking_bay_02.yaml, etc.)
+
+substitutions:
+  device_slug: parking-bay-1
+  friendly_name: Parking Bay 1
+  bay_label: "1"
+
+packages:
+  parking_bay: !include ../parking_bay_base.yaml
