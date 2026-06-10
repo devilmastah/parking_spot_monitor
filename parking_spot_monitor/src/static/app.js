@@ -1,6 +1,11 @@
-/** Paths relative to the Ingress URL (never use absolute /api or /static). */
-function addonPath(relativePath) {
-  return relativePath.replace(/^\//, "");
+/** Build URLs under the Ingress prefix (HA injects <base href="http://.../">). */
+function ingressUrl(relativePath) {
+  const rel = relativePath.replace(/^\//, "");
+  const prefix = window.INGRESS_PREFIX;
+  if (prefix) {
+    return `${prefix.replace(/\/$/, "")}/${rel}`;
+  }
+  return new URL(rel, window.location.href).href;
 }
 
 const REFRESH_MS = 30000;
@@ -26,8 +31,7 @@ document.querySelectorAll(".tab").forEach((tab) => {
 });
 
 async function api(path, options = {}) {
-  const rel = addonPath(`api${path.startsWith("/") ? path : `/${path}`}`);
-  const res = await fetch(rel, {
+  const res = await fetch(ingressUrl(`api${path.startsWith("/") ? path : `/${path}`}`), {
     headers: { "Content-Type": "application/json" },
     ...options,
   });
@@ -90,7 +94,7 @@ function renderDashboard() {
           ? `<p class="hint warn">No expected car — assign in <strong>Configure bays</strong></p>`
           : "";
       const img = bay.snapshot_url
-        ? `<img src="${addonPath(bay.snapshot_url)}?t=${Date.now()}" alt="${bay.bay_name}">`
+        ? `<img src="${ingressUrl(bay.snapshot_url)}?t=${Date.now()}" alt="${bay.bay_name}">`
         : `<span class="no-image">No snapshot yet</span>`;
 
       return `

@@ -83,7 +83,12 @@ templates = Jinja2Templates(directory=templates_dir)
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    # HA Ingress sends this header; without it relative fetch() hits <base href="http://.../">.
+    ingress_path = (request.headers.get("X-Ingress-Path") or "").rstrip("/")
+    return templates.TemplateResponse(
+        "index.html",
+        {"request": request, "ingress_path": ingress_path},
+    )
 
 
 @app.get("/health")

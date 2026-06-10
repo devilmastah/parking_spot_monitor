@@ -4,7 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Parking Spot Monitor</title>
-  <link rel="stylesheet" href="static/style.css?v=2.4.0">
+  <script>window.INGRESS_PREFIX = {{ ingress_path|tojson }};</script>
+  <link rel="stylesheet" href="{{ (ingress_path + '/static/style.css?v=2.4.1') if ingress_path else 'static/style.css?v=2.4.1' }}">
 </head>
 <body>
   <header>
@@ -88,6 +89,6 @@
     </div>
   </div>
 
-  <script src="static/app.js?v=2.4.0"></script>
+  <script src="{{ (ingress_path + '/static/app.js?v=2.4.1') if ingress_path else 'static/app.js?v=2.4.1' }}"></script>
 </body>
 </html>
