@@ -7,9 +7,10 @@ from contextlib import asynccontextmanager
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 import uvicorn
 
 from src.analyzer import analyze_all_bays, sync_addon_bays
@@ -26,6 +27,20 @@ logger = logging.getLogger(__name__)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 scheduler = AsyncIOScheduler()
+
+
+class StripTrailingSlashMiddleware:
+    """Normalize /api/bays/ → /api/bays before routing (avoids bad 307 behind Ingress)."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            path = scope.get("path", "")
+            if len(path) > 1 and path.endswith("/"):
+                scope = {**scope, "path": path.rstrip("/")}
+        await self.app(scope, receive, send)
 
 
 async def _scheduled_analysis():
@@ -71,7 +86,9 @@ async def lifespan(app: FastAPI):
     mqtt_publisher.disconnect()
 
 
-app = FastAPI(title="Parking Spot Monitor", lifespan=lifespan)
+app = FastAPI(title="Parking Spot Monitor", lifespan=lifespan, redirect_slashes=False)
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
+app.add_middleware(StripTrailingSlashMiddleware)
 app.include_router(api_router)
 
 static_dir = os.path.join(BASE_DIR, "static")

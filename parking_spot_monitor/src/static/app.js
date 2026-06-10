@@ -1,6 +1,6 @@
 /** Build URLs under the Ingress prefix (HA injects <base href="http://.../">). */
 function ingressUrl(relativePath) {
-  const rel = relativePath.replace(/^\//, "");
+  const rel = relativePath.replace(/^\//, "").replace(/\/+$/, "");
   const prefix = window.INGRESS_PREFIX;
   if (prefix) {
     return `${prefix.replace(/\/$/, "")}/${rel}`;
@@ -31,10 +31,15 @@ document.querySelectorAll(".tab").forEach((tab) => {
 });
 
 async function api(path, options = {}) {
-  const res = await fetch(ingressUrl(`api${path.startsWith("/") ? path : `/${path}`}`), {
+  const apiPath = `api${path.startsWith("/") ? path : `/${path}`}`.replace(/\/+$/, "");
+  const res = await fetch(ingressUrl(apiPath), {
     headers: { "Content-Type": "application/json" },
+    redirect: "manual",
     ...options,
   });
+  if (res.status >= 300 && res.status < 400) {
+    throw new Error(`Unexpected redirect (${res.status}) — update the add-on to the latest version.`);
+  }
   if (!res.ok) {
     const text = await res.text();
     let message = text || res.statusText;
