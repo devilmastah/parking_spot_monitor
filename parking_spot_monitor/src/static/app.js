@@ -94,14 +94,11 @@ function renderDashboard() {
       const hasResult = bay.analyzed_at != null;
       const occupied = bay.occupied === true;
       const statusClass = !hasResult ? "unknown" : occupied ? "occupied" : "empty";
-      const unknownMarker = hasResult && occupied && bay.aruco_id_detected != null && bay.car_number == null;
       const statusLabel = !hasResult
         ? "No data"
-        : unknownMarker
-          ? `Unknown marker (ID ${bay.aruco_id_detected})`
-          : occupied
-            ? "Occupied"
-            : "Empty";
+        : occupied
+          ? "Occupied"
+          : "Empty";
       const correctCar = bay.correct_car || "uncertain";
       const effectiveCorrectCar =
         hasResult &&

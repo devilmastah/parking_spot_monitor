@@ -22,7 +22,7 @@ ARUCO_DICTIONARIES = {
     "DICT_7X7_250": cv2.aruco.DICT_7X7_250,
 }
 
-OCCUPIED_CONFIDENCE_THRESHOLD = 0.5
+OCCUPIED_CONFIDENCE_THRESHOLD = 0.8
 
 # Contrast multipliers for glare / reflection fallback passes.
 CONTRAST_STEPS = (1.3, 1.7, 2.2)
@@ -222,27 +222,27 @@ class _PassDetection:
     used_flip: bool | None
 
 
+def _fleet_aruco_ids(fleet: list[dict]) -> set[int]:
+    return {car["aruco_id"] for car in fleet}
+
+
 def _pick_best_detection(
     hits: list[_PassDetection],
     fleet: list[dict],
 ) -> _PassDetection | None:
+    """Only accept markers that exist in the fleet — decorative patterns are rejected."""
     if not hits:
         return None
 
-    fleet_ids = {car["aruco_id"] for car in fleet}
-    best_any = max(hits, key=lambda h: h.confidence)
+    fleet_ids = _fleet_aruco_ids(fleet)
     if not fleet_ids:
-        return best_any
+        return None
 
     fleet_hits = [h for h in hits if h.marker_id in fleet_ids]
     if not fleet_hits:
-        return best_any
+        return None
 
-    best_fleet = max(fleet_hits, key=lambda h: h.confidence)
-    # Prefer a known fleet marker when confidence is close (reduces glare false positives).
-    if best_fleet.confidence >= best_any.confidence - 0.12:
-        return best_fleet
-    return best_any
+    return max(fleet_hits, key=lambda h: h.confidence)
 
 
 def _detect_multi_pass(
@@ -386,33 +386,46 @@ def analyze_image_with_debug(
     confidence = 0.0
 
     if marker_id is not None:
-        aruco_id = marker_id
         car_number = _match_fleet(marker_id, fleet)
-        confidence = marker_conf
-        logger.info(
-            "Marker detected id=%s car=%s confidence=%s pass=%s (color red=%.1f%%)",
-            aruco_id,
-            car_number,
-            confidence,
-            debug.preprocess_pass,
-            color.red_ratio * 100,
-        )
-    elif (
+        if car_number is None:
+            logger.info(
+                "Ignoring ArUco id=%s (not in fleet, confidence=%s) — treating as no marker",
+                marker_id,
+                marker_conf,
+            )
+        else:
+            aruco_id = marker_id
+            confidence = marker_conf
+            logger.info(
+                "Marker detected id=%s car=%s confidence=%s pass=%s (color red=%.1f%%)",
+                aruco_id,
+                car_number,
+                confidence,
+                debug.preprocess_pass,
+                color.red_ratio * 100,
+            )
+
+    if aruco_id is None and (
         previous is not None
         and previous.aruco_id_detected is not None
         and previous.confidence >= OCCUPIED_CONFIDENCE_THRESHOLD
     ):
-        aruco_id = previous.aruco_id_detected
-        car_number = previous.car_number or _match_fleet(aruco_id, fleet)
-        confidence = previous.confidence
-        debug.marker_sticky = True
-        logger.info(
-            "Keeping previous marker id=%s car=%s while bay stays occupied (color red=%.1f%%)",
-            aruco_id,
-            car_number,
-            color.red_ratio * 100,
+        prev_car = previous.car_number or _match_fleet(
+            previous.aruco_id_detected, fleet
         )
-    else:
+        if prev_car is not None:
+            aruco_id = previous.aruco_id_detected
+            car_number = prev_car
+            confidence = previous.confidence
+            debug.marker_sticky = True
+            logger.info(
+                "Keeping previous marker id=%s car=%s while bay stays occupied (color red=%.1f%%)",
+                aruco_id,
+                car_number,
+                color.red_ratio * 100,
+            )
+
+    if aruco_id is None:
         logger.info(
             "Bay occupied by color (red=%.1f%%) but no marker detected",
             color.red_ratio * 100,
