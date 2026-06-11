@@ -37,9 +37,9 @@ function resolveCorrectCarBadge(bay, hasResult, occupied) {
   if (!hasResult || !hasExpectedCar(bay)) {
     return { value: "uncertain", label: "Assign expected car", show: false };
   }
+  // Empty bay: correct_car is "no" in MQTT (expected car not present) — not a "wrong car".
   if (!occupied) {
-    const value = bay.correct_car === "no" ? "no" : "no";
-    return { value, label: "Empty spot", show: true };
+    return { value: "empty", label: "Empty spot", show: false };
   }
   if (!hasDetectedMarker(bay)) {
     return { value: "unknown", label: "Occupied, car unknown", show: true };
