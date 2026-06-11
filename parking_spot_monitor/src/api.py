@@ -14,6 +14,7 @@ from src.analyzer import (
     latest_snapshot_for_bay,
     refresh_bay_correct_car,
 )
+from src.bay_matching import compute_correct_car
 from src.config import settings
 from src.database import db
 from src.ha_client import ha_client
@@ -245,7 +246,22 @@ async def list_spots():
 async def dashboard():
     """All bays with last snapshot URL and analysis results for the debug UI."""
     rows = await db.list_dashboard()
-    return [_enrich_bay_row(row) for row in rows]
+    fleet = await db.list_fleet()
+    enriched = []
+    for row in rows:
+        if row.get("analyzed_at") is not None:
+            correct_car = compute_correct_car(
+                occupied=bool(row.get("occupied")),
+                car_number_detected=row.get("car_number"),
+                aruco_id_detected=row.get("aruco_id_detected"),
+                expected_car_number=row.get("expected_car_number"),
+                fleet=fleet,
+            )
+            if correct_car != (row.get("correct_car") or "uncertain"):
+                await db.update_bay_correct_car(row["bay_id"], correct_car)
+            row["correct_car"] = correct_car
+        enriched.append(_enrich_bay_row(row))
+    return enriched
 
 
 @router.post("/analyze")

@@ -20,6 +20,13 @@ def _expected_aruco_id(expected_car_number: int, fleet: list[dict]) -> int | Non
     return None
 
 
+def has_detected_marker(
+    aruco_id_detected: int | None,
+    car_number_detected: int | None,
+) -> bool:
+    return aruco_id_detected is not None or car_number_detected is not None
+
+
 def compute_correct_car(
     occupied: bool,
     car_number_detected: int | None,
@@ -34,7 +41,7 @@ def compute_correct_car(
     if not occupied:
         return CORRECT_CAR_NO
 
-    if aruco_id_detected is None and car_number_detected is None:
+    if not has_detected_marker(aruco_id_detected, car_number_detected):
         return CORRECT_CAR_UNKNOWN
 
     if car_number_detected == expected_car_number:

@@ -21,6 +21,36 @@ function ingressUrl(relativePath) {
   return new URL(rel, window.location.href).href;
 }
 
+function hasExpectedCar(bay) {
+  return bay.expected_car_number != null && bay.expected_car_number !== "";
+}
+
+function hasDetectedMarker(bay) {
+  return (
+    (bay.aruco_id_detected != null && bay.aruco_id_detected !== "") ||
+    (bay.car_number != null && bay.car_number !== "")
+  );
+}
+
+/** Derive correct-car badge from live bay state (not stale DB alone). */
+function resolveCorrectCarBadge(bay, hasResult, occupied) {
+  if (!hasResult || !hasExpectedCar(bay)) {
+    return { value: "uncertain", label: "Assign expected car", show: false };
+  }
+  if (!occupied) {
+    const value = bay.correct_car === "no" ? "no" : "no";
+    return { value, label: "Empty spot", show: true };
+  }
+  if (!hasDetectedMarker(bay)) {
+    return { value: "unknown", label: "Occupied, car unknown", show: true };
+  }
+  const value = bay.correct_car || "uncertain";
+  if (value === "yes") return { value, label: "Correct car", show: true };
+  if (value === "no") return { value, label: "Wrong car", show: true };
+  if (value === "unknown") return { value, label: "Occupied, car unknown", show: true };
+  return { value: "unknown", label: "Occupied, car unknown", show: true };
+}
+
 const REFRESH_MS = 30000;
 
 const state = { bays: [], fleet: [], dashboard: [], system: {} };
@@ -99,33 +129,16 @@ function renderDashboard() {
         : occupied
           ? "Occupied"
           : "Empty";
-      const correctCar = bay.correct_car || "uncertain";
-      const effectiveCorrectCar =
-        hasResult &&
-        occupied &&
-        bay.expected_car_number != null &&
-        bay.aruco_id_detected == null &&
-        bay.car_number == null
-          ? "unknown"
-          : correctCar;
-      const correctLabel =
-        effectiveCorrectCar === "yes"
-          ? "Correct car"
-          : effectiveCorrectCar === "no"
-            ? "Wrong car"
-            : effectiveCorrectCar === "unknown"
-              ? "Occupied, car unknown"
-              : "Assign expected car";
+      const correctBadge = resolveCorrectCarBadge(bay, hasResult, occupied);
       const correctClass =
-        effectiveCorrectCar === "yes"
+        correctBadge.value === "yes"
           ? "correct-yes"
-          : effectiveCorrectCar === "no"
+          : correctBadge.value === "no"
             ? "correct-no"
-            : effectiveCorrectCar === "unknown"
+            : correctBadge.value === "unknown"
               ? "correct-car-unknown"
               : "correct-unknown";
-      const expectedHint =
-        bay.expected_car_number == null
+      const expectedHint = !hasExpectedCar(bay)
           ? `<p class="hint warn">No expected car — assign in <strong>Configure bays</strong></p>`
           : "";
       const img = bay.snapshot_url
@@ -152,7 +165,7 @@ function renderDashboard() {
             <div><span class="label">Car left</span><strong>${leftAt}</strong></div>
           </div>
           ${expectedHint}
-          ${bay.expected_car_number != null && hasResult ? `<span class="badge ${correctClass}">${correctLabel}</span>` : ""}
+          ${correctBadge.show ? `<span class="badge ${correctClass}">${correctBadge.label}</span>` : ""}
           <div class="confidence-bar"><span style="width:${pct}%"></span></div>
           <div class="dash-meta">${formatTime(bay.analyzed_at)}</div>
           <div class="dash-actions">
