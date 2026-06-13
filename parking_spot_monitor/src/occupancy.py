@@ -8,7 +8,7 @@ import numpy as np
 # Pixels in the vertical band at the horizontal center of the frame.
 CENTER_SLICE_WIDTH = 50
 # Fraction of slice pixels that must be red to treat the bay as occupied.
-RED_RATIO_OCCUPIED_THRESHOLD = 0.22
+RED_RATIO_OCCUPIED_THRESHOLD = 0.18
 # Mean grayscale brightness below this → lights off / unusable frame.
 DARK_FRAME_MEAN_THRESHOLD = 18.0
 
