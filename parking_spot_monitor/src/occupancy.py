@@ -7,8 +7,10 @@ import numpy as np
 
 # Pixels in the vertical band at the horizontal center of the frame.
 CENTER_SLICE_WIDTH = 50
+# Ignore bottom of slice (cable tray / red hose in foreground).
+SLICE_BOTTOM_EXCLUDE_FRACTION = 0.10
 # Fraction of slice pixels that must be red to treat the bay as occupied.
-RED_RATIO_OCCUPIED_THRESHOLD = 0.18
+RED_RATIO_OCCUPIED_THRESHOLD = 0.10
 # Mean grayscale brightness below this → lights off / unusable frame.
 DARK_FRAME_MEAN_THRESHOLD = 18.0
 
@@ -28,7 +30,11 @@ def _center_slice(image: np.ndarray, width: int = CENTER_SLICE_WIDTH) -> np.ndar
     half = max(1, width // 2)
     x0 = max(0, center_x - half)
     x1 = min(frame_width, center_x + half)
-    return image[:, x0:x1]
+    slice_bgr = image[:, x0:x1]
+    if SLICE_BOTTOM_EXCLUDE_FRACTION > 0:
+        keep_rows = max(1, int(slice_bgr.shape[0] * (1 - SLICE_BOTTOM_EXCLUDE_FRACTION)))
+        slice_bgr = slice_bgr[:keep_rows, :]
+    return slice_bgr
 
 
 def detect_occupied_by_color(image: np.ndarray) -> ColorOccupancyResult:
