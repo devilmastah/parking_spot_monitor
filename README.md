@@ -2,6 +2,17 @@
 
 Monitor fixed parking bays using **one ESP32-CAM per bay** (ESPHome) and **ArUco markers** on car roofs. Bays are photographed **one at a time** to keep WiFi load manageable.
 
+**Handover docs**
+
+| Guide | Who it is for |
+|-------|----------------|
+| [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | Install cameras, print markers, set add-on options, use the web UI, read MQTT entities |
+| [docs/DEVELOPER.md](docs/DEVELOPER.md) | How the add-on is structured, how detection works, where to change behavior |
+| [esphome/README.md](esphome/README.md) | Per-bay ESPHome files and exposure tuning |
+| [esphome/STABILITY.md](esphome/STABILITY.md) | ESP32-CAM power, Wi-Fi, and reboot causes |
+
+Occupancy is based on a **red roof** against a **gray floor** in the center of the frame. The marker then identifies which fleet car it is. Details and the `correct_car` values (`yes`, `no`, `unknown`, `uncertain`) are in the user guide.
+
 ## How it works
 
 ```mermaid
@@ -34,6 +45,8 @@ flowchart LR
 3. **Check for updates** → install **Parking Spot Monitor**
 
 ## Setup guide
+
+Full steps, every add-on option, and troubleshooting: [docs/USER_GUIDE.md](docs/USER_GUIDE.md).
 
 ### 1. Flash ESP32-CAM units (ESPHome)
 
@@ -123,9 +136,10 @@ Open the add-on Web UI:
 
 | Value | Meaning |
 |-------|---------|
-| `yes` | Spot occupied and detected car matches the bay's expected car |
-| `no` | Spot empty, or a different car/marker is present |
-| `uncertain` | No expected car configured for this bay, or expected car not in Fleet |
+| `yes` | Occupied, and the detected car matches the bay's expected car |
+| `no` | Empty, or occupied by a different fleet car |
+| `unknown` | Occupied (red roof) but no fleet marker could be read |
+| `uncertain` | No expected car configured for this bay |
 
 ### MQTT troubleshooting
 
@@ -148,11 +162,14 @@ Entity topics: `parking_spot/<bay_id>/occupied`, `.../correct_car`, etc.
 - ESP32-CAM snapshots are often **horizontally mirrored**; v2.2.1+ tries both orientations automatically. You can also set `horizontal_mirror: true` in ESPHome to fix it at the camera
 - Marker should fill ~5–15% of the frame width; aim the ESP32-CAM fairly straight down
 - Add each car in **Fleet** with the same ArUco ID printed on its marker
-- If the dashboard shows **Unknown marker (ID n)** the marker was seen but that ID is not in Fleet
+- A marker ID that is not in **Fleet** is ignored
 - Good lighting helps; enable `flash_before_capture: true` only for dark bays
-- Empty bay = **no marker detected** or confidence **below 50%** → occupied OFF
+- Empty bay = the center of the frame is not red enough (gray floor). A dark frame (lights off) keeps the previous result
+- Occupied with no readable marker stays occupied and reports car number `unknown`
 
 ## Development
+
+See [docs/DEVELOPER.md](docs/DEVELOPER.md). Local run (needs `HA_URL` and `HA_TOKEN`; MQTT is off in compose):
 
 ```bash
 docker compose up --build
